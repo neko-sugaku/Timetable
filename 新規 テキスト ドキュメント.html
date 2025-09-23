@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>時間割管理アプリ</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', 'Noto Sans JP', sans-serif;
+            -webkit-print-color-adjust: exact;
+        }
+        .tab-button { transition: all 0.3s; }
+        .tab-button.active { border-color: #4f46e5; color: #4f46e5; font-weight: 600; }
+        .table-cell-conflict { background-color: #fecaca !important; }
+        .teacher-hours-invalid { background-color: #fecaca !important; }
+        .table-container { overflow-x: auto; max-width: 100%; }
+        .teacher-timetable table, .class-timetable-list table {
+            table-layout: fixed;
+            border-collapse: collapse;
+        }
+        th { white-space: nowrap; }
+        .timetable-cell { position: relative; padding: 0 !important; vertical-align: middle; }
+        .timetable-cell select { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+
+        .timetable-data-cell {
+            height: 50px; /* セルの高さはここで調整 */
+            padding: 2px;
+            font-size: 12px;
+            line-height: 1.3;
+            white-space: normal;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+        }
+        .teacher-timetable .timetable-data-cell {
+            pointer-events: none; /* Make the text unclickable so the underlying select works */
+        }
+
+        /* Set a fixed width for the first column (Teacher/Class Name) */
+        .teacher-timetable th:first-child,
+        .class-timetable-list th:first-child {
+            width: 80px;
+        }
+
+        /* Set a fixed width for all other columns (Time Slots) */
+        .teacher-timetable tr > *:not(:first-child),
+        .class-timetable-list tr > *:not(:first-child) {
+            width: 50px;
+            text-align: center;
+        }
+
+        .display-timetable { table-layout: fixed; width: 100%; }
+        .display-timetable th:first-child, .display-timetable td:first-child { width: 40px; }
+        .display-timetable th:not(:first-child), .display-timetable td:not(:first-child) { width: calc((100% - 40px) / 5); }
+        .display-timetable td { height: 200px; white-space: normal; font-size: 50px; }
+        .display-timetable td span { font-size: 25px; }
+        .assignment-incomplete { background-color: #fecaca !important; padding: 4px; border-radius: 4px; }
+        
+        /* Modal styles */
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; z-index: 1000; }
+        .modal-content { background: white; padding: 2rem; border-radius: 0.5rem; max-height: 80vh; overflow-y: auto; }
+        
+        /* Custom Tooltip */
+        #custom-tooltip {
+            pointer-events: none;
+            white-space: pre-wrap;
+            transition: opacity 0.1s;
+        }
+        
+        /* Drag and Drop styles */
+        .dragging { opacity: 0.5; }
+        .drag-over { border-top: 2px solid #4f46e5; }
+        .drag-over-bottom { border-bottom: 2px solid #4f46e5; }
+
+
+        @media print {
+            body * { visibility: hidden; }
+            .printable-area, .printable-area * { visibility: visible; }
+            .printable-area { position: absolute; left: 0; top: 0; width: 100%; }
+            .class-timetable-print-wrapper { page-break-after: always; }
+            #teacher-timetable-container, #class-timetable-list-container { transform: scale(0.8); transform-origin: top left; width: 125%; }
+            .no-print, .modal-overlay, #custom-tooltip { display: none; }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800">
+    <div id="modal-container"></div>
+    <div id="custom-tooltip" class="hidden absolute z-50 p-2 text-sm bg-gray-800 text-white rounded-md shadow-lg"></div>
+
+    <div class="container mx-auto p-4 md:p-6">
+        <header class="mb-6 flex justify-between items-center">
+            <div>
+                <h1 class="text-3xl font-bold text-gray-900">時間割管理アプリ</h1>
+                <p class="text-gray-600 mt-1">教員・学級ごとの時間割を効率的に管理します。</p>
+            </div>
+            <div class="no-print flex items-center space-x-2">
+                 <button id="import-btn" class="bg-green-600 text-white font-semibold py-2 px-4 rounded-md hover:bg-green-700 transition duration-300 shadow">インポート</button>
+                 <button id="export-btn" class="bg-blue-600 text-white font-semibold py-2 px-4 rounded-md hover:bg-blue-700 transition duration-300 shadow">エクスポート</button>
+                 <button id="print-btn" class="bg-indigo-600 text-white font-semibold py-2 px-4 rounded-md hover:bg-indigo-700 transition duration-300 shadow">この画面を印刷</button>
+                 <input type="file" id="import-file-input" class="hidden" accept=".json">
+            </div>
+        </header>
+
+        <nav class="flex border-b border-gray-200 mb-6 no-print">
+            <button id="settings-tab" class="tab-button py-3 px-6 border-b-2 border-transparent text-gray-500 hover:bg-gray-100">基本設定</button>
+            <button id="assignment-tab" class="tab-button py-3 px-6 border-b-2 border-transparent text-gray-500 hover:bg-gray-100">担当割り当て一覧</button>
+            <button id="teacher-tab" class="tab-button py-3 px-6 border-b-2 border-transparent text-gray-500 hover:bg-gray-100">教員時間割</button>
+            <button id="class-list-tab" class="tab-button py-3 px-6 border-b-2 border-transparent text-gray-500 hover:bg-gray-100">学級時間割</button>
+            <button id="display-tab" class="tab-button py-3 px-6 border-b-2 border-transparent text-gray-500 hover:bg-gray-100">掲示用時間割</button>
+        </nav>
+        
+        <main id="app-content"></main>
+    </div>
+
+    <script>
+        const app = {
+            state: {
+                currentView: 'settings-tab',
+                data: null,
+            },
+
+            init() { this.loadData(); this.setupEventListeners(); this.render(); },
+
+            loadData() {
+                const savedData = localStorage.getItem('timetableApp');
+                if (savedData) {
+                    this.state.data = JSON.parse(savedData);
+                } else {
+                    this.state.data = {
+                        config: {
+                            days: [{ name: "月", periods: 5 }, { name: "火", periods: 6 }, { name: "水", periods: 6 }, { name: "木", periods: 5 }, { name: "金", periods: 6 }],
+                            subjects: [
+                                { id: 1, grade: 1, name: '国語', hours: 4, teacherCount: 1 }, { id: 2, grade: 1, name: '数学', hours: 4, teacherCount: 1 }, { id: 3, grade: 1, name: '英語', hours: 4, teacherCount: 1 }, { id: 4, grade: 2, name: '数学', hours: 3, teacherCount: 1 }, { id: 5, grade: 3, name: '社会', hours: 4, teacherCount: 1 }, { id: 6, grade: 1, name: '理科', hours: 3, teacherCount: 1 },
+                            ],
+                        },
+                        teachers: [
+                            { id: 1, name: '佐藤先生', canTeach: [{grade: 1, name: '数学'}, {grade: 2, name: '数学'}] }, { id: 2, name: '鈴木先生', canTeach: [{grade: 1, name: '英語'}] }, { id: 3, name: '高橋先生', canTeach: [{grade: 1, name: '国語'}] },
+                        ],
+                        classes: [{ id: 1, name: '1-1', grade: 1 }, { id: 2, name: '1-2', grade: 1 }, { id: 3, name: '2-1', grade: 2 }],
+                        assignments: [{ teacherIds: [1], classId: 1, subject: '数学' }, { teacherIds: [1], classId: 2, subject: '数学' }, { teacherIds: [3], classId: 1, subject: '国語' }],
+                        timetable: {},
+                    };
+                }
+            },
+
+            saveData() { localStorage.setItem('timetableApp', JSON.stringify(this.state.data)); },
+
+            getNewId(array) { return array.length > 0 ? Math.max(...array.map(item => item.id)) + 1 : 1; },
+
+            setupEventListeners() {
+                document.getElementById('settings-tab').addEventListener('click', () => this.changeView('settings-tab'));
+                document.getElementById('assignment-tab').addEventListener('click', () => this.changeView('assignment-tab'));
+                document.getElementById('teacher-tab').addEventListener('click', () => this.changeView('teacher-tab'));
+                document.getElementById('class-list-tab').addEventListener('click', () => this.changeView('class-list-tab'));
+                document.getElementById('display-tab').addEventListener('click', () => this.changeView('display-tab'));
+                document.getElementById('print-btn').addEventListener('click', () => window.print());
+                document.getElementById('export-btn').addEventListener('click', () => this.exportData());
+                document.getElementById('import-btn').addEventListener('click', () => document.getElementById('import-file-input').click());
+                document.getElementById('import-file-input').addEventListener('change', (e) => this.importData(e));
+            },
+            
+            changeView(viewId) { this.state.currentView = viewId; this.render(); },
+
+            render() {
+                const content = document.getElementById('app-content');
+                document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+                document.getElementById(this.state.currentView).classList.add('active');
+                switch (this.state.currentView) {
+                    case 'settings-tab': content.innerHTML = this.renderSettings(); this.attachSettingsListeners(); break;
+                    case 'assignment-tab': content.innerHTML = this.renderAssignmentsMatrix(); this.attachAssignmentsMatrixListeners(); break;
+                    case 'teacher-tab': content.innerHTML = this.renderTeacherTimetable(); this.attachTeacherTimetableListeners(); this.validateAll(); break;
+                    case 'class-list-tab': content.innerHTML = this.renderClassTimetableList(); this.attachClassTimetableListListeners(); break;
+                    case 'display-tab': content.innerHTML = this.renderDisplayTimetable(); break;
+                }
+            },
+            
+            renderAlertModal(message) {
+                const modalHTML = `<div id="alert-modal" class="modal-overlay"><div class="modal-content text-center"><p class="mb-6">${message}</p><button id="close-alert-modal" class="bg-indigo-600 text-white px-6 py-2 rounded">OK</button></div></div>`;
+                document.getElementById('modal-container').innerHTML = modalHTML;
+                document.getElementById('close-alert-modal').addEventListener('click', () => { document.getElementById('modal-container').innerHTML = ''; });
+            },
+
+            renderConfirmationModal(message, onConfirm) {
+                const modalHTML = `<div id="confirm-modal" class="modal-overlay"><div class="modal-content"><p class="mb-6">${message}</p><div class="text-right"><button id="confirm-ok" class="bg-red-600 text-white px-4 py-2 rounded">はい、インポートします</button><button id="confirm-cancel" class="ml-2 bg-gray-300 px-4 py-2 rounded">キャンセル</button></div></div></div>`;
+                document.getElementById('modal-container').innerHTML = modalHTML;
+                document.getElementById('confirm-ok').addEventListener('click', () => { onConfirm(); document.getElementById('modal-container').innerHTML = ''; });
+                document.getElementById('confirm-cancel').addEventListener('click', () => { document.getElementById('modal-container').innerHTML = ''; });
+            },
+
+            exportData() {
+                const dataStr = JSON.stringify(this.state.data, null, 2);
+                const blob = new Blob([dataStr], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                const timestamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '');
+                a.download = `timetable_backup_${timestamp}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            },
+
+            importData(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const importedData = JSON.parse(e.target.result);
+                        if (importedData.config && importedData.teachers && importedData.classes && importedData.assignments && importedData.timetable) {
+                             this.renderConfirmationModal(
+                                '現在のデータを上書きして、ファイルをインポートしますか？この操作は元に戻せません。',
+                                () => {
+                                    this.state.data = importedData;
+                                    this.saveData();
+                                    this.render();
+                                    event.target.value = null;
+                                }
+                            );
+                        } else {
+                            this.renderAlertModal('無効なファイル形式です。このアプリでエクスポートされたファイルを選択してください。');
+                        }
+                    } catch (error) {
+                        this.renderAlertModal('ファイルの読み込みに失敗しました。有効なJSONファイルではありません。');
+                        console.error("Import error:", error);
+                    }
+                };
+                reader.readAsText(file);
+            },
+            
+            renderSettings() {
+                 return `<div class="bg-white p-6 rounded-lg shadow-md grid grid-cols-1 md:grid-cols-3 gap-8"><div><h3 class="text-lg font-bold mb-2">教員の設定</h3><div id="teachers-list" class="space-y-2 mb-2"></div><div class="flex space-x-2"><input type="text" id="new-teacher-name" class="border rounded px-2 py-1 w-full max-w-xs" placeholder="新しい教員名"><button id="add-teacher" class="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 text-sm">追加</button></div></div><div><h3 class="text-lg font-bold mb-2">学級の設定</h3><div id="classes-list" class="space-y-2 mb-2"></div><div class="flex space-x-2"><input type="text" id="new-class-name" class="border rounded px-2 py-1 w-24" placeholder="学級名"><input type="number" id="new-class-grade" min="0" class="border rounded px-2 py-1 w-20" placeholder="学年"><button id="add-class" class="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 text-sm">追加</button></div></div><div><h3 class="text-lg font-bold mb-2">教科と週時間数の設定</h3><div id="subjects-list" class="space-y-2 mb-2"></div><div class="flex space-x-2"><input type="number" id="new-subject-grade" min="0" class="border rounded px-2 py-1 w-20" placeholder="学年"><input type="text" id="new-subject-name" class="border rounded px-2 py-1 w-24" placeholder="教科名"><input type="number" id="new-subject-hours" class="border rounded px-2 py-1 w-20" placeholder="時間数"><button id="add-subject" class="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 text-sm">追加</button></div></div></div>`;
+            },
+            
+            attachSettingsListeners() {
+                const renderAndAttach = () => { this.saveData(); this.render(); };
+                
+                // Teachers
+                const teachersList = document.getElementById('teachers-list');
+                teachersList.innerHTML = this.state.data.teachers.map(t => {
+                    const canTeachStr = t.canTeach.map(ct => `${ct.grade}年${ct.name}`).join(', ');
+                    return `<div draggable="true" data-teacher-id="${t.id}" class="teacher-list-item flex items-center space-x-2 flex-wrap p-1 rounded-md cursor-grab"><input type="text" value="${t.name}" data-id="${t.id}" class="teacher-name-input border rounded px-2 py-1 w-full max-w-[150px]"><button data-id="${t.id}" class="edit-can-teach-btn text-blue-500 hover:text-blue-700 text-sm">担当教科</button><span class="text-xs text-gray-600">${canTeachStr}</span><button data-id="${t.id}" class="delete-teacher text-red-500 hover:text-red-700 text-sm ml-auto">削除</button></div>`;
+                }).join('');
+                document.getElementById('add-teacher').addEventListener('click', () => { const input = document.getElementById('new-teacher-name'); if (input.value.trim()) { this.state.data.teachers.push({ id: this.getNewId(this.state.data.teachers), name: input.value.trim(), canTeach: [] }); renderAndAttach(); } });
+                teachersList.querySelectorAll('.teacher-name-input').forEach(input => input.addEventListener('change', (e) => { this.state.data.teachers.find(t => t.id == e.target.dataset.id).name = e.target.value; this.saveData(); }));
+                teachersList.querySelectorAll('.delete-teacher').forEach(button => button.addEventListener('click', (e) => { 
+                    const teacherId = parseInt(e.target.dataset.id);
+                    this.state.data.teachers = this.state.data.teachers.filter(t => t.id !== teacherId);
+                    this.state.data.assignments.forEach(a => { a.teacherIds = a.teacherIds.filter(tid => tid !== teacherId); });
+                    for (const key in this.state.data.timetable) {
+                        if (key.startsWith(`${teacherId}_`)) {
+                            delete this.state.data.timetable[key];
+                        }
+                    }
+                    renderAndAttach(); 
+                }));
+                teachersList.querySelectorAll('.edit-can-teach-btn').forEach(button => button.addEventListener('click', (e) => this.renderCanTeachModal(parseInt(e.target.dataset.id))));
+                this.attachDragAndDropListeners(teachersList, '.teacher-list-item', 'teacherId', this.reorderTeachers.bind(this));
+
+                // Classes & Subjects
+                const classesList = document.getElementById('classes-list');
+                classesList.innerHTML = this.state.data.classes.map(c => `<div draggable="true" data-class-id="${c.id}" class="class-list-item flex items-center space-x-2 p-1 rounded-md cursor-grab"><input type="text" value="${c.name}" data-id="${c.id}" data-prop="name" class="class-input border rounded px-2 py-1 w-24"><input type="number" min="0" value="${c.grade}" data-id="${c.id}" data-prop="grade" class="class-input border rounded px-2 py-1 w-20"><button data-id="${c.id}" class="delete-class text-red-500 hover:text-red-700 text-sm">削除</button></div>`).join('');
+                document.getElementById('add-class').addEventListener('click', () => { const nameInput = document.getElementById('new-class-name'); const gradeInput = document.getElementById('new-class-grade'); if (nameInput.value.trim() && gradeInput.value && parseInt(gradeInput.value) >= 0) { this.state.data.classes.push({ id: this.getNewId(this.state.data.classes), name: nameInput.value.trim(), grade: parseInt(gradeInput.value) }); renderAndAttach(); } });
+                classesList.querySelectorAll('.class-input').forEach(input => input.addEventListener('change', (e) => { const classItem = this.state.data.classes.find(c => c.id == e.target.dataset.id); classItem[e.target.dataset.prop] = e.target.dataset.prop === 'grade' ? parseInt(e.target.value) : e.target.value; this.saveData(); }));
+                classesList.querySelectorAll('.delete-class').forEach(button => button.addEventListener('click', (e) => { const classId = parseInt(e.target.dataset.id); this.state.data.classes = this.state.data.classes.filter(c => c.id !== classId); this.state.data.assignments = this.state.data.assignments.filter(a => a.classId !== classId); renderAndAttach(); }));
+                this.attachDragAndDropListeners(classesList, '.class-list-item', 'classId', this.reorderClasses.bind(this));
+                
+                const subjectsList = document.getElementById('subjects-list');
+                subjectsList.innerHTML = this.state.data.config.subjects.map(s => `<div class="flex items-center space-x-2"><input type="number" min="0" value="${s.grade}" data-id="${s.id}" data-prop="grade" class="subject-input border rounded px-2 py-1 w-20"><input type="text" value="${s.name}" data-id="${s.id}" data-prop="name" class="subject-input border rounded px-2 py-1 w-24"><input type="number" value="${s.hours}" data-id="${s.id}" data-prop="hours" class="subject-input border rounded px-2 py-1 w-20"><button data-id="${s.id}" class="delete-subject text-red-500 hover:text-red-700 text-sm">削除</button></div>`).join('');
+                document.getElementById('add-subject').addEventListener('click', () => { const grade = document.getElementById('new-subject-grade').value, name = document.getElementById('new-subject-name').value, hours = document.getElementById('new-subject-hours').value; if(grade && parseInt(grade) >= 0 && name.trim() && hours) { this.state.data.config.subjects.push({ id: this.getNewId(this.state.data.config.subjects), grade: parseInt(grade), name: name.trim(), hours: parseInt(hours), teacherCount: 1 }); renderAndAttach(); } });
+                subjectsList.querySelectorAll('.subject-input').forEach(input => input.addEventListener('change', e => { const subject = this.state.data.config.subjects.find(s => s.id == e.target.dataset.id); const prop = e.target.dataset.prop; subject[prop] = ['grade', 'hours'].includes(prop) ? parseInt(e.target.value) : e.target.value; this.saveData(); }));
+                subjectsList.querySelectorAll('.delete-subject').forEach(button => button.addEventListener('click', e => { this.state.data.config.subjects = this.state.data.config.subjects.filter(s => s.id != e.target.dataset.id); renderAndAttach(); }));
+            },
+
+            renderCanTeachModal(teacherId) {
+                const teacher = this.state.data.teachers.find(t => t.id === teacherId);
+                const allSubjects = [...new Set(this.state.data.config.subjects.map(s => `${s.grade}学年 ${s.name}`))];
+                let checkboxes = allSubjects.map(subjectStr => {
+                    const [grade, name] = [parseInt(subjectStr), subjectStr.split(' ')[1]];
+                    const isChecked = teacher.canTeach.some(ct => ct.grade === grade && ct.name === name);
+                    return `<div><label><input type="checkbox" class="can-teach-checkbox" value="${grade}|${name}" ${isChecked ? 'checked' : ''}> ${subjectStr}</label></div>`;
+                }).join('');
+                const modalHTML = `<div id="can-teach-modal" class="modal-overlay"><div class="modal-content"><h3 class="text-lg font-bold mb-4">${teacher.name} の担当可能な教科</h3><div class="space-y-2">${checkboxes}</div><div class="mt-6 text-right"><button id="save-can-teach" class="bg-blue-500 text-white px-4 py-2 rounded">保存</button><button id="close-modal" class="ml-2 bg-gray-300 px-4 py-2 rounded">閉じる</button></div></div></div>`;
+                document.getElementById('modal-container').innerHTML = modalHTML;
+                document.getElementById('save-can-teach').addEventListener('click', () => this.saveCanTeach(teacherId));
+                document.getElementById('close-modal').addEventListener('click', () => document.getElementById('modal-container').innerHTML = '');
+            },
+            
+            saveCanTeach(teacherId) {
+                const teacher = this.state.data.teachers.find(t => t.id === teacherId);
+                teacher.canTeach = [];
+                document.querySelectorAll('.can-teach-checkbox:checked').forEach(cb => {
+                    const [grade, name] = cb.value.split('|');
+                    teacher.canTeach.push({ grade: parseInt(grade), name: name });
+                });
+                this.saveData();
+                document.getElementById('modal-container').innerHTML = '';
+                this.render();
+            },
+
+            renderAssignmentsMatrix() {
+                const { teachers, classes, assignments, config } = this.state.data;
+                const uniqueSubjects = [...new Map(config.subjects.map(item => [`${item.grade}|${item.name}`, item])).values()];
+                let html = '<div class="bg-white p-6 rounded-lg shadow-md space-y-6">';
+                uniqueSubjects.forEach(subject => {
+                    const classesInGrade = classes.filter(c => c.grade === subject.grade);
+                    if (classesInGrade.length === 0) return;
+                    const qualifiedTeachers = teachers.filter(t => t.canTeach.some(ct => ct.grade === subject.grade && ct.name === subject.name));
+                    const teacherOptions = `<option value="">-</option>${qualifiedTeachers.map(t => `<option value="${t.id}">${t.name}</option>`).join('')}`;
+                    let tableRows = '';
+                    for (let i = 0; i < subject.teacherCount; i++) {
+                        let rowTds = '';
+                        classesInGrade.forEach(c => {
+                            const assignment = assignments.find(a => a.classId === c.id && a.subject === subject.name) || { teacherIds: [] };
+                            const teacherId = assignment.teacherIds[i];
+                            let select = `<select data-class-id="${c.id}" data-subject="${subject.name}" data-index="${i}" class="assignment-select border rounded px-2 py-1 w-full text-sm">${teacherOptions}</select>`;
+                            rowTds += `<td class="p-1 align-top">${teacherId ? select.replace(`value="${teacherId}"`, `value="${teacherId}" selected`) : select}</td>`;
+                        });
+                        tableRows += `<tr>${rowTds}</tr>`;
+                    }
+                    const isComplete = (classesInGrade.every(c => { const assignment = assignments.find(a => a.classId === c.id && a.subject === subject.name); return assignment && assignment.teacherIds[0]; }));
+                    const headerClass = isComplete ? '' : 'assignment-incomplete';
+                    html += `<div><div class="flex items-center space-x-4 mb-2"><h4 class="${headerClass} text-md font-bold">${subject.grade}学年 ${subject.name}</h4><label class="text-sm">教員数: <input type="number" min="1" value="${subject.teacherCount}" data-subject-id="${subject.id}" class="teacher-count-input border rounded w-16 px-1 py-0.5"></label></div><div class="table-container"><table class="w-full text-center"><thead><tr>${classesInGrade.map(c => `<th class="p-1 text-sm font-normal">${c.name}</th>`).join('')}</tr></thead><tbody>${tableRows}</tbody></table></div></div>`;
+                });
+                html += '</div>';
+                return html;
+            },
+            
+            attachAssignmentsMatrixListeners() {
+                document.querySelectorAll('.teacher-count-input').forEach(input => {
+                    input.addEventListener('change', e => {
+                        this.state.data.config.subjects.forEach(subject => { if (subject.id == e.target.dataset.subjectId) { subject.teacherCount = parseInt(e.target.value) || 1; } });
+                        this.saveData(); this.render();
+                    });
+                });
+                document.querySelectorAll('.assignment-select').forEach(select => {
+                    select.addEventListener('change', e => {
+                        const { classId, subject, index } = e.target.dataset;
+                        const teacherId = e.target.value ? parseInt(e.target.value) : null;
+                        let assignment = this.state.data.assignments.find(a => a.classId == classId && a.subject === subject);
+                        if (!assignment) { assignment = { teacherIds: [], classId: parseInt(classId), subject }; this.state.data.assignments.push(assignment); }
+                        assignment.teacherIds[parseInt(index)] = teacherId;
+                        this.saveData(); this.render();
+                    });
+                });
+            },
+
+            renderTeacherTimetable() {
+                const { days } = this.state.data.config;
+                const { teachers, assignments, classes } = this.state.data;
+                let header = `<tr><th class="p-2 border bg-gray-100 sticky left-0 z-10">教員名</th>${days.map(day => Array.from({length: day.periods}, (_, j) => `<th class="p-2 border bg-gray-100">${day.name}${j+1}</th>`).join('')).join('')}</tr>`;
+                let body = teachers.map(teacher => {
+                    const cells = days.map((day, dayIndex) => {
+                        return Array.from({length: day.periods}, (_, periodIndex) => {
+                            const key = `${teacher.id}_${dayIndex}_${periodIndex}`;
+                            const selectedAssignmentIndex = this.state.data.timetable[key];
+                            const currentAssignment = this.state.data.assignments[selectedAssignmentIndex];
+                            const options = this.state.data.assignments.map((a, index) => ({...a, originalIndex: index})).filter(a => a.teacherIds.includes(teacher.id)).map(a => `<option value="${a.originalIndex}" ${a.originalIndex == selectedAssignmentIndex ? 'selected' : ''}>${classes.find(c=>c.id===a.classId)?.name || ''} ${a.subject}</option>`).join('');
+                            let displayText = '-';
+                            if (currentAssignment) { displayText = `${classes.find(c=>c.id===currentAssignment.classId)?.name || ''}<br>${currentAssignment.subject}`; }
+                            return `<td class="border timetable-cell" data-day-index="${dayIndex}" data-period-index="${periodIndex}">
+                                        <div class="timetable-data-cell">${displayText}</div>
+                                        <select data-teacher-id="${teacher.id}"><option value="">-</option>${options}</select>
+                                    </td>`;
+                        }).join('');
+                    }).join('');
+                    return `<tr draggable="true" data-teacher-id="${teacher.id}" class="teacher-timetable-row"><th id="teacher-th-${teacher.id}" class="teacher-name-th p-2 border bg-gray-100 sticky left-0 z-10 cursor-grab">${teacher.name}</th>${cells}</tr>`;
+                }).join('');
+                return `<div id="teacher-timetable-container" class="bg-white p-6 rounded-lg shadow-md printable-area"><h2 class="text-xl font-bold mb-4">教員別時間割</h2><div class="table-container teacher-timetable"><table class="w-full border-collapse"><thead>${header}</thead><tbody id="teacher-timetable-body">${body}</tbody></table></div></div>`;
+            },
+            
+            attachTeacherTimetableListeners() {
+                document.querySelectorAll('#teacher-timetable-container select').forEach(select => {
+                    select.addEventListener('change', (e) => {
+                        const teacherId = e.target.dataset.teacherId;
+                        const td = e.target.closest('td');
+                        const { dayIndex, periodIndex } = td.dataset;
+                        const key = `${teacherId}_${dayIndex}_${periodIndex}`;
+                        const displayTextDiv = td.querySelector('.timetable-data-cell');
+                        if (e.target.value) { this.state.data.timetable[key] = e.target.value; const assignment = this.state.data.assignments[e.target.value]; const className = this.state.data.classes.find(c => c.id === assignment.classId)?.name || 'N/A'; displayTextDiv.innerHTML = `${className}<br>${assignment.subject}`; } else { delete this.state.data.timetable[key]; displayTextDiv.innerHTML = '-'; }
+                        this.saveData(); this.validateAll();
+                    });
+                });
+                const tooltip = document.getElementById('custom-tooltip');
+                document.querySelectorAll('.teacher-name-th').forEach(th => {
+                    th.addEventListener('mouseenter', e => {
+                        const teacherId = parseInt(th.id.replace('teacher-th-', ''));
+                        const { teachers, assignments, classes, config, timetable } = this.state.data;
+                        const teacher = teachers.find(t => t.id === teacherId);
+                        if (!teacher) return;
+                        const currentHoursMap = new Map();
+                        for (const key in timetable) {
+                            const [entryTeacherId] = key.split('_');
+                            if (parseInt(entryTeacherId) === teacherId) { const assignmentIndex = timetable[key]; currentHoursMap.set(assignmentIndex, (currentHoursMap.get(assignmentIndex) || 0) + 1); }
+                        }
+                        const teacherAssignments = assignments.map((a, index) => ({ ...a, originalIndex: index.toString() })).filter(a => a.teacherIds.includes(teacher.id));
+                        const tooltipText = teacherAssignments.map(a => {
+                            const className = classes.find(c => c.id === a.classId)?.name || '';
+                            const grade = classes.find(c => c.id === a.classId)?.grade || 0;
+                            const subjectInfo = config.subjects.find(s => s.grade === grade && s.name === a.subject);
+                            const hours = subjectInfo ? subjectInfo.hours : 0;
+                            const currentHours = currentHoursMap.get(a.originalIndex) || 0;
+                            const remainingHours = hours - currentHours;
+                            return `${className} ${a.subject} ${hours}時間 (あと${remainingHours}時間)`;
+                        }).join('\n');
+                        if (tooltipText) { tooltip.textContent = tooltipText; tooltip.classList.remove('hidden'); }
+                    });
+                    th.addEventListener('mouseleave', () => { tooltip.classList.add('hidden'); });
+                    th.addEventListener('mousemove', e => { tooltip.style.left = `${e.pageX + 15}px`; tooltip.style.top = `${e.pageY + 15}px`; });
+                });
+                const timetableBody = document.getElementById('teacher-timetable-body');
+                if (timetableBody) { this.attachDragAndDropListeners(timetableBody, '.teacher-timetable-row', 'teacherId', this.reorderTeachers.bind(this)); }
+            },
+            
+            reorderTeachers(draggedId, beforeId) { this.reorderGeneric(this.state.data.teachers, draggedId, beforeId); },
+            reorderClasses(draggedId, beforeId) { this.reorderGeneric(this.state.data.classes, draggedId, beforeId); },
+            reorderGeneric(array, draggedId, beforeId) {
+                if (draggedId === beforeId) return;
+                const draggedIndex = array.findIndex(item => item.id == draggedId);
+                if (draggedIndex === -1) return;
+                const [draggedItem] = array.splice(draggedIndex, 1);
+                if (beforeId === null) {
+                    array.push(draggedItem);
+                } else {
+                    const beforeIndex = array.findIndex(item => item.id == beforeId);
+                    array.splice(beforeIndex, 0, draggedItem);
+                }
+                this.saveData();
+            },
+
+            getDragAfterElement(container, y, selector) {
+                const draggableElements = [...container.querySelectorAll(`${selector}:not(.dragging)`)];
+                return draggableElements.reduce((closest, child) => {
+                    const box = child.getBoundingClientRect();
+                    const offset = y - box.top - box.height / 2;
+                    if (offset < 0 && offset > closest.offset) { return { offset: offset, element: child }; } 
+                    else { return closest; }
+                }, { offset: Number.NEGATIVE_INFINITY }).element;
+            },
+
+            attachDragAndDropListeners(container, draggableSelector, idDatasetKey, reorderFunction) {
+                container.addEventListener('dragstart', e => {
+                    const target = e.target.closest(draggableSelector);
+                    if (target) { e.dataTransfer.setData('text/plain', target.dataset[idDatasetKey]); setTimeout(() => target.classList.add('dragging'), 0); }
+                });
+                container.addEventListener('dragend', e => {
+                    const target = e.target.closest(draggableSelector);
+                    if (target) target.classList.remove('dragging');
+                });
+                container.addEventListener('dragover', e => {
+                    e.preventDefault();
+                    container.querySelectorAll('.drag-over, .drag-over-bottom').forEach(el => el.classList.remove('drag-over', 'drag-over-bottom'));
+                    const afterElement = this.getDragAfterElement(container, e.clientY, draggableSelector);
+                    if (afterElement) { afterElement.classList.add('drag-over'); } 
+                    else { const last = container.querySelector(`${draggableSelector}:last-child:not(.dragging)`); if(last) last.classList.add('drag-over-bottom'); }
+                });
+                container.addEventListener('drop', e => {
+                    e.preventDefault();
+                    container.querySelectorAll('.drag-over, .drag-over-bottom').forEach(el => el.classList.remove('drag-over', 'drag-over-bottom'));
+                    const draggedId = e.dataTransfer.getData('text/plain');
+                    if (!draggedId) return;
+                    const afterElement = this.getDragAfterElement(container, e.clientY, draggableSelector);
+                    const beforeId = afterElement ? afterElement.dataset[idDatasetKey] : null;
+                    if (draggedId !== beforeId) {
+                        reorderFunction(draggedId, beforeId);
+                        this.render();
+                    }
+                });
+            },
+
+            renderClassTimetableList() {
+                const { days } = this.state.data.config;
+                const { classes, teachers, assignments, timetable } = this.state.data;
+                let header = `<tr><th class="p-2 border bg-gray-100 sticky left-0 z-10">学級名</th>${days.map(day => Array.from({length: day.periods}, (_, j) => `<th class="p-2 border bg-gray-100">${day.name}${j+1}</th>`).join('')).join('')}</tr>`;
+                
+                const classTimetableData = {};
+                for (const key in timetable) {
+                    const [teacherId, dayIndex, periodIndex] = key.split('_');
+                    const assignment = assignments[timetable[key]];
+                    if (!assignment) continue;
+                    const classId = assignment.classId;
+                    if (!classTimetableData[classId]) classTimetableData[classId] = {};
+                    if (!classTimetableData[classId][dayIndex]) classTimetableData[classId][dayIndex] = {};
+                    const teacherNames = assignment.teacherIds.map(tid => teachers.find(t => t.id === tid)?.name || '').filter(name => name).join(', ');
+                    classTimetableData[classId][dayIndex][periodIndex] = `${assignment.subject}<br><span class="text-xs text-gray-500">${teacherNames}</span>`;
+                }
+
+                let body = classes.map(c => {
+                    const cells = days.map((day, dayIndex) => {
+                        return Array.from({length: day.periods}, (_, periodIndex) => {
+                            const content = classTimetableData[c.id]?.[dayIndex]?.[periodIndex] || '-';
+                            return `<td class="border"><div class="timetable-data-cell">${content}</div></td>`;
+                        }).join('');
+                    }).join('');
+                    return `<tr draggable="true" data-class-id="${c.id}" class="class-timetable-list-row"><th class="p-2 border bg-gray-100 sticky left-0 z-10 cursor-grab">${c.name}</th>${cells}</tr>`;
+                }).join('');
+
+                return `<div id="class-timetable-list-container" class="bg-white p-6 rounded-lg shadow-md printable-area"><h2 class="text-xl font-bold mb-4">学級別時間割一覧</h2><div class="table-container class-timetable-list"><table class="w-full border-collapse"><thead>${header}</thead><tbody id="class-timetable-list-body">${body}</tbody></table></div></div>`;
+            },
+            
+            attachClassTimetableListListeners() {
+                const timetableBody = document.getElementById('class-timetable-list-body');
+                if (timetableBody) {
+                    this.attachDragAndDropListeners(timetableBody, '.class-timetable-list-row', 'classId', this.reorderClasses.bind(this));
+                }
+            },
+
+            renderDisplayTimetable() {
+                const { days } = this.state.data.config;
+                const { classes, teachers, assignments, timetable } = this.state.data;
+                const maxPeriods = Math.max(0, ...days.map(d => d.periods));
+
+                return `<div class="printable-area">${classes.map(c => {
+                    const header = `<tr><th></th>${days.map(day => `<th>${day.name}</th>`).join('')}</tr>`;
+                    const body = Array.from({length: maxPeriods}, (_, i) => i + 1).map(period => {
+                        const cells = days.map((day, dayIndex) => {
+                             if (period > day.periods) return '<td class="bg-gray-100"></td>';
+                             let cellContent = '';
+                             let placedAssignments = new Set();
+                             for (const key in timetable) {
+                                 const [teacherId, dIndex, pIndex] = key.split('_');
+                                 if (dIndex == dayIndex && pIndex == period - 1) {
+                                     const assignmentIndex = timetable[key];
+                                     const assignment = assignments[assignmentIndex];
+                                     if (assignment && assignment.classId === c.id && !placedAssignments.has(assignmentIndex)) {
+                                         const assignedTeachers = teachers.filter(t => assignment.teacherIds.includes(t.id));
+                                         cellContent = `${assignment.subject}<br><span class="text-xs text-gray-500">${assignedTeachers.map(t=>t.name).join(', ')}</span>`;
+                                         placedAssignments.add(assignmentIndex);
+                                     }
+                                 }
+                             }
+                             return `<td class="border text-center">${cellContent || '-'}</td>`;
+                        }).join('');
+                        return `<tr><td class="font-bold border bg-gray-100">${period}</td>${cells}</tr>`;
+                    }).join('');
+
+                    return `<div class="bg-white p-6 rounded-lg shadow-md mb-6 class-timetable-print-wrapper"><h3 class="text-lg font-bold mb-4">${c.name} 掲示用時間割</h3><table class="display-timetable border-collapse text-center"><thead>${header}</thead><tbody>${body}</tbody></table></div>`;
+                }).join('')}</div>`;
+            },
+
+            validateAll() { if (this.state.currentView !== 'teacher-tab') return; this.validateTeacherHours(); this.validateClassConflicts(); },
+            
+            validateTeacherHours() {
+                const { teachers, assignments, classes, config, timetable } = this.state.data;
+                if (!teachers || !assignments || !classes || !config || !config.subjects) return;
+                teachers.forEach(teacher => {
+                    let isTeacherValid = true;
+                    const teacherAssignments = assignments.map((a, i) => ({ ...a, originalIndex: i })).filter(a => a.teacherIds.includes(teacher.id));
+                    const currentHoursMap = new Map();
+                    for (const key in timetable) {
+                        const [entryTeacherId] = key.split('_');
+                        if (parseInt(entryTeacherId) === teacher.id) { const assignmentIndex = timetable[key]; currentHoursMap.set(assignmentIndex, (currentHoursMap.get(assignmentIndex) || 0) + 1); }
+                    }
+                    teacherAssignments.forEach(assign => {
+                        const classInfo = classes.find(c => c.id === assign.classId);
+                        if (!classInfo) return;
+                        const subjectInfo = config.subjects.find(s => s.grade === classInfo.grade && s.name === assign.subject);
+                        const required = subjectInfo ? subjectInfo.hours : 0;
+                        const current = currentHoursMap.get(assign.originalIndex.toString()) || 0;
+                        if (required > 0 && required !== current) { isTeacherValid = false; }
+                    });
+                    const th = document.getElementById(`teacher-th-${teacher.id}`);
+                    if (th) { th.classList.toggle('teacher-hours-invalid', !isTeacherValid); }
+                });
+            },
+
+            validateClassConflicts() {
+                document.querySelectorAll('.table-cell-conflict').forEach(cell => cell.classList.remove('table-cell-conflict'));
+                const { days } = this.state.data.config;
+                if (!document.querySelectorAll('#teacher-timetable-container td[data-day-index]').length) return;
+                days.forEach((day, dayIndex) => {
+                    for (let periodIndex = 0; periodIndex < day.periods; periodIndex++) {
+                        const placedAssignmentsInSlot = new Map();
+                        this.state.data.teachers.forEach(teacher => {
+                            const key = `${teacher.id}_${dayIndex}_${periodIndex}`;
+                            if (this.state.data.timetable[key]) {
+                                const assignment = this.state.data.assignments[this.state.data.timetable[key]];
+                                if (assignment) {
+                                    if(!placedAssignmentsInSlot.has(assignment.classId)) { placedAssignmentsInSlot.set(assignment.classId, []); }
+                                    const cell = document.querySelector(`#teacher-timetable-container th#teacher-th-${teacher.id}`)?.parentElement.querySelector(`td[data-day-index="${dayIndex}"][data-period-index="${periodIndex}"]`);
+                                    if (cell) { placedAssignmentsInSlot.get(assignment.classId).push(cell); }
+                                }
+                            }
+                        });
+                         placedAssignmentsInSlot.forEach((cells, classId) => {
+                             const assignment = this.state.data.assignments.find(a => a.classId === classId && cells.length > 0);
+                             const subjectInfo = this.state.data.config.subjects.find(s=>s.grade === this.state.data.classes.find(c=>c.id === classId)?.grade && s.name === assignment?.subject);
+                             const teacherCount = subjectInfo ? subjectInfo.teacherCount : 1;
+                             if(cells.length > teacherCount){ cells.forEach(c => c.classList.add('table-cell-conflict')); }
+                         });
+                    }
+                });
+            }
+        };
+
+        document.addEventListener('DOMContentLoaded', () => app.init());
+    </script>
+</body>
+</html>
+
