@@ -77,13 +77,34 @@
         .drag-over { border-top: 2px solid #4f46e5; }
         .drag-over-bottom { border-bottom: 2px solid #4f46e5; }
 
-
+        /* Print Styles */
         @media print {
+            @page {
+                size: A4;
+                margin: 1cm;
+            }
+            body.print-landscape {
+                @page { size: A4 landscape; }
+            }
             body * { visibility: hidden; }
             .printable-area, .printable-area * { visibility: visible; }
-            .printable-area { position: absolute; left: 0; top: 0; width: 100%; }
-            .class-timetable-print-wrapper { page-break-after: always; }
-            #teacher-timetable-container, #class-timetable-list-container { transform: scale(0.8); transform-origin: top left; width: 125%; }
+            .printable-area { 
+                position: absolute; 
+                left: 0; 
+                top: 0; 
+                width: 100%;
+            }
+            /* Scale down list views to fit landscape page */
+            body.print-landscape #teacher-timetable-container,
+            body.print-landscape #class-timetable-list-container {
+                transform: scale(0.75);
+                transform-origin: top left;
+                width: 133%;
+            }
+             /* Ensure each display timetable starts on a new page */
+            .class-timetable-print-wrapper { 
+                page-break-after: always;
+            }
             .no-print, .modal-overlay, #custom-tooltip { display: none; }
         }
     </style>
@@ -99,16 +120,25 @@
                 <p class="text-gray-600 mt-1">教員・学級ごとの時間割を効率的に管理します。</p>
             </div>
             <div class="no-print flex items-center space-x-2">
-                 <button id="import-btn" class="bg-green-600 text-white font-semibold py-2 px-4 rounded-md hover:bg-green-700 transition duration-300 shadow">インポート</button>
-                 <button id="export-btn" class="bg-blue-600 text-white font-semibold py-2 px-4 rounded-md hover:bg-blue-700 transition duration-300 shadow">エクスポート</button>
-                 <button id="print-btn" class="bg-indigo-600 text-white font-semibold py-2 px-4 rounded-md hover:bg-indigo-700 transition duration-300 shadow">この画面を印刷</button>
+                 <button id="import-btn" class="bg-green-600 text-white font-semibold py-2 px-4 rounded-md hover:bg-green-700 transition duration-300 shadow flex items-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                    インポート
+                 </button>
+                 <button id="export-btn" class="bg-blue-600 text-white font-semibold py-2 px-4 rounded-md hover:bg-blue-700 transition duration-300 shadow flex items-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                    エクスポート
+                 </button>
+                 <button id="print-btn" class="bg-indigo-600 text-white font-semibold py-2 px-4 rounded-md hover:bg-indigo-700 transition duration-300 shadow flex items-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
+                    印刷
+                 </button>
                  <input type="file" id="import-file-input" class="hidden" accept=".json">
             </div>
         </header>
 
         <nav class="flex border-b border-gray-200 mb-6 no-print">
             <button id="settings-tab" class="tab-button py-3 px-6 border-b-2 border-transparent text-gray-500 hover:bg-gray-100">基本設定</button>
-            <button id="assignment-tab" class="tab-button py-3 px-6 border-b-2 border-transparent text-gray-500 hover:bg-gray-100">担当割り当て一覧</button>
+            <button id="assignment-tab" class="tab-button py-3 px-6 border-b-2 border-transparent text-gray-500 hover:bg-gray-100">担当割り当て</button>
             <button id="teacher-tab" class="tab-button py-3 px-6 border-b-2 border-transparent text-gray-500 hover:bg-gray-100">教員時間割</button>
             <button id="class-list-tab" class="tab-button py-3 px-6 border-b-2 border-transparent text-gray-500 hover:bg-gray-100">学級時間割</button>
             <button id="display-tab" class="tab-button py-3 px-6 border-b-2 border-transparent text-gray-500 hover:bg-gray-100">掲示用時間割</button>
@@ -158,7 +188,7 @@
                 document.getElementById('teacher-tab').addEventListener('click', () => this.changeView('teacher-tab'));
                 document.getElementById('class-list-tab').addEventListener('click', () => this.changeView('class-list-tab'));
                 document.getElementById('display-tab').addEventListener('click', () => this.changeView('display-tab'));
-                document.getElementById('print-btn').addEventListener('click', () => window.print());
+                document.getElementById('print-btn').addEventListener('click', () => this.printView());
                 document.getElementById('export-btn').addEventListener('click', () => this.exportData());
                 document.getElementById('import-btn').addEventListener('click', () => document.getElementById('import-file-input').click());
                 document.getElementById('import-file-input').addEventListener('change', (e) => this.importData(e));
@@ -179,6 +209,15 @@
                 }
             },
             
+            printView() {
+                const landscapeViews = ['teacher-tab', 'class-list-tab'];
+                if (landscapeViews.includes(this.state.currentView)) {
+                    document.body.classList.add('print-landscape');
+                }
+                window.print();
+                document.body.classList.remove('print-landscape');
+            },
+
             renderAlertModal(message) {
                 const modalHTML = `<div id="alert-modal" class="modal-overlay"><div class="modal-content text-center"><p class="mb-6">${message}</p><button id="close-alert-modal" class="bg-indigo-600 text-white px-6 py-2 rounded">OK</button></div></div>`;
                 document.getElementById('modal-container').innerHTML = modalHTML;
@@ -461,33 +500,25 @@
                 if (timetableBody) { this.attachDragAndDropListeners(timetableBody, '.teacher-timetable-row', 'teacherId', this.reorderTeachers.bind(this)); }
             },
             
-            reorderTeachers(draggedId, beforeId) { this.reorderGeneric(this.state.data.teachers, draggedId, beforeId); },
-            reorderClasses(draggedId, beforeId) { this.reorderGeneric(this.state.data.classes, draggedId, beforeId); },
-            reorderSubjects(draggedId, beforeId) { this.reorderGeneric(this.state.data.config.subjects, draggedId, beforeId); },
-            reorderDays(draggedName, beforeName) {
-                const array = this.state.data.config.days;
-                if (draggedName === beforeName) return;
-                const draggedIndex = array.findIndex(item => item.name === draggedName);
-                if (draggedIndex === -1) return;
-                const [draggedItem] = array.splice(draggedIndex, 1);
-                if (beforeName === null) {
-                    array.push(draggedItem);
-                } else {
-                    const beforeIndex = array.findIndex(item => item.name === beforeName);
-                    array.splice(beforeIndex, 0, draggedItem);
-                }
-                this.saveData();
-            },
+            reorderTeachers(draggedId, beforeId) { this.reorderGeneric(this.state.data.teachers, draggedId, beforeId, false); },
+            reorderClasses(draggedId, beforeId) { this.reorderGeneric(this.state.data.classes, draggedId, beforeId, false); },
+            reorderSubjects(draggedId, beforeId) { this.reorderGeneric(this.state.data.config.subjects, draggedId, beforeId, false); },
+            reorderDays(draggedName, beforeName) { this.reorderGeneric(this.state.data.config.days, draggedName, beforeName, true); },
+            
+            reorderGeneric(array, draggedId, beforeId, useName = false) {
+                const findIndex = (item) => useName ? item.name == draggedId : item.id == draggedId;
+                const findBeforeIndex = (item) => useName ? item.name == beforeId : item.id == beforeId;
 
-            reorderGeneric(array, draggedId, beforeId) {
                 if (draggedId === beforeId) return;
-                const draggedIndex = array.findIndex(item => item.id == draggedId);
+                const draggedIndex = array.findIndex(findIndex);
                 if (draggedIndex === -1) return;
+
                 const [draggedItem] = array.splice(draggedIndex, 1);
+                
                 if (beforeId === null) {
                     array.push(draggedItem);
                 } else {
-                    const beforeIndex = array.findIndex(item => item.id == beforeId);
+                    const beforeIndex = array.findIndex(findBeforeIndex);
                     array.splice(beforeIndex, 0, draggedItem);
                 }
                 this.saveData();
@@ -545,15 +576,17 @@
                     if (!assignment) continue;
                     const classId = assignment.classId;
                     if (!classTimetableData[classId]) classTimetableData[classId] = {};
-                    if (!classTimetableData[classId][dayIndex]) classTimetableData[classId][dayIndex] = {};
+                    const dayName = days[dayIndex]?.name;
+                    if (!dayName) continue;
+                    if (!classTimetableData[classId][dayName]) classTimetableData[classId][dayName] = {};
                     const teacherNames = assignment.teacherIds.map(tid => teachers.find(t => t.id === tid)?.name || '').filter(name => name).join(', ');
-                    classTimetableData[classId][dayIndex][periodIndex] = `${assignment.subject}<br><span class="text-xs text-gray-500">${teacherNames}</span>`;
+                    classTimetableData[classId][dayName][periodIndex] = `${assignment.subject}<br><span class="text-xs text-gray-500">${teacherNames}</span>`;
                 }
 
                 let body = classes.map(c => {
-                    const cells = days.map((day, dayIndex) => {
+                    const cells = days.map((day) => {
                         return Array.from({length: day.periods}, (_, periodIndex) => {
-                            const content = classTimetableData[c.id]?.[dayIndex]?.[periodIndex] || '-';
+                            const content = classTimetableData[c.id]?.[day.name]?.[periodIndex] || '-';
                             return `<td class="border"><div class="timetable-data-cell">${content}</div></td>`;
                         }).join('');
                     }).join('');
