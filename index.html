@@ -235,7 +235,12 @@
             },
             
             renderSettings() {
-                 return `<div class="bg-white p-6 rounded-lg shadow-md grid grid-cols-1 md:grid-cols-3 gap-8"><div><h3 class="text-lg font-bold mb-2">教員の設定</h3><div id="teachers-list" class="space-y-2 mb-2"></div><div class="flex space-x-2"><input type="text" id="new-teacher-name" class="border rounded px-2 py-1 w-full max-w-xs" placeholder="新しい教員名"><button id="add-teacher" class="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 text-sm">追加</button></div></div><div><h3 class="text-lg font-bold mb-2">学級の設定</h3><div id="classes-list" class="space-y-2 mb-2"></div><div class="flex space-x-2"><input type="text" id="new-class-name" class="border rounded px-2 py-1 w-24" placeholder="学級名"><input type="number" id="new-class-grade" min="0" class="border rounded px-2 py-1 w-20" placeholder="学年"><button id="add-class" class="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 text-sm">追加</button></div></div><div><h3 class="text-lg font-bold mb-2">教科と週時間数の設定</h3><div id="subjects-list" class="space-y-2 mb-2"></div><div class="flex space-x-2"><input type="number" id="new-subject-grade" min="0" class="border rounded px-2 py-1 w-20" placeholder="学年"><input type="text" id="new-subject-name" class="border rounded px-2 py-1 w-24" placeholder="教科名"><input type="number" id="new-subject-hours" class="border rounded px-2 py-1 w-20" placeholder="時間数"><button id="add-subject" class="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 text-sm">追加</button></div></div></div>`;
+                 return `<div class="bg-white p-6 rounded-lg shadow-md grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div><h3 class="text-lg font-bold mb-2">教員の設定</h3><div id="teachers-list" class="space-y-2 mb-2"></div><div class="flex space-x-2"><input type="text" id="new-teacher-name" class="border rounded px-2 py-1 w-full max-w-xs" placeholder="新しい教員名"><button id="add-teacher" class="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 text-sm">追加</button></div></div>
+                    <div><h3 class="text-lg font-bold mb-2">学級の設定</h3><div id="classes-list" class="space-y-2 mb-2"></div><div class="flex space-x-2"><input type="text" id="new-class-name" class="border rounded px-2 py-1 w-24" placeholder="学級名"><input type="number" id="new-class-grade" min="0" class="border rounded px-2 py-1 w-20" placeholder="学年"><button id="add-class" class="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 text-sm">追加</button></div></div>
+                    <div><h3 class="text-lg font-bold mb-2">教科と週時間数の設定</h3><div id="subjects-list" class="space-y-2 mb-2"></div><div class="flex space-x-2"><input type="number" id="new-subject-grade" min="0" class="border rounded px-2 py-1 w-20" placeholder="学年"><input type="text" id="new-subject-name" class="border rounded px-2 py-1 w-24" placeholder="教科名"><input type="number" id="new-subject-hours" class="border rounded px-2 py-1 w-20" placeholder="時間数"><button id="add-subject" class="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 text-sm">追加</button></div></div>
+                    <div><h3 class="text-lg font-bold mb-2">曜日と時限数の設定</h3><div id="days-list" class="space-y-2 mb-2"></div><div class="flex space-x-2"><select id="new-day-name" class="border rounded px-2 py-1 w-24"><option value="月">月曜日</option><option value="火">火曜日</option><option value="水">水曜日</option><option value="木">木曜日</option><option value="金">金曜日</option><option value="土">土曜日</option><option value="日">日曜日</option></select><input type="number" id="new-day-periods" min="1" class="border rounded px-2 py-1 w-20" placeholder="時限数"><button id="add-day" class="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 text-sm">追加</button></div></div>
+                </div>`;
             },
             
             attachSettingsListeners() {
@@ -263,7 +268,7 @@
                 teachersList.querySelectorAll('.edit-can-teach-btn').forEach(button => button.addEventListener('click', (e) => this.renderCanTeachModal(parseInt(e.target.dataset.id))));
                 this.attachDragAndDropListeners(teachersList, '.teacher-list-item', 'teacherId', this.reorderTeachers.bind(this));
 
-                // Classes & Subjects
+                // Classes
                 const classesList = document.getElementById('classes-list');
                 classesList.innerHTML = this.state.data.classes.map(c => `<div draggable="true" data-class-id="${c.id}" class="class-list-item flex items-center space-x-2 p-1 rounded-md cursor-grab"><input type="text" value="${c.name}" data-id="${c.id}" data-prop="name" class="class-input border rounded px-2 py-1 w-24"><input type="number" min="0" value="${c.grade}" data-id="${c.id}" data-prop="grade" class="class-input border rounded px-2 py-1 w-20"><button data-id="${c.id}" class="delete-class text-red-500 hover:text-red-700 text-sm">削除</button></div>`).join('');
                 document.getElementById('add-class').addEventListener('click', () => { const nameInput = document.getElementById('new-class-name'); const gradeInput = document.getElementById('new-class-grade'); if (nameInput.value.trim() && gradeInput.value && parseInt(gradeInput.value) >= 0) { this.state.data.classes.push({ id: this.getNewId(this.state.data.classes), name: nameInput.value.trim(), grade: parseInt(gradeInput.value) }); renderAndAttach(); } });
@@ -271,11 +276,49 @@
                 classesList.querySelectorAll('.delete-class').forEach(button => button.addEventListener('click', (e) => { const classId = parseInt(e.target.dataset.id); this.state.data.classes = this.state.data.classes.filter(c => c.id !== classId); this.state.data.assignments = this.state.data.assignments.filter(a => a.classId !== classId); renderAndAttach(); }));
                 this.attachDragAndDropListeners(classesList, '.class-list-item', 'classId', this.reorderClasses.bind(this));
                 
+                // Subjects
                 const subjectsList = document.getElementById('subjects-list');
-                subjectsList.innerHTML = this.state.data.config.subjects.map(s => `<div class="flex items-center space-x-2"><input type="number" min="0" value="${s.grade}" data-id="${s.id}" data-prop="grade" class="subject-input border rounded px-2 py-1 w-20"><input type="text" value="${s.name}" data-id="${s.id}" data-prop="name" class="subject-input border rounded px-2 py-1 w-24"><input type="number" value="${s.hours}" data-id="${s.id}" data-prop="hours" class="subject-input border rounded px-2 py-1 w-20"><button data-id="${s.id}" class="delete-subject text-red-500 hover:text-red-700 text-sm">削除</button></div>`).join('');
+                subjectsList.innerHTML = this.state.data.config.subjects.map(s => `<div draggable="true" data-subject-id="${s.id}" class="subject-list-item flex items-center space-x-2 p-1 rounded-md cursor-grab"><input type="number" min="0" value="${s.grade}" data-id="${s.id}" data-prop="grade" class="subject-input border rounded px-2 py-1 w-20"><input type="text" value="${s.name}" data-id="${s.id}" data-prop="name" class="subject-input border rounded px-2 py-1 w-24"><input type="number" value="${s.hours}" data-id="${s.id}" data-prop="hours" class="subject-input border rounded px-2 py-1 w-20"><button data-id="${s.id}" class="delete-subject text-red-500 hover:text-red-700 text-sm">削除</button></div>`).join('');
                 document.getElementById('add-subject').addEventListener('click', () => { const grade = document.getElementById('new-subject-grade').value, name = document.getElementById('new-subject-name').value, hours = document.getElementById('new-subject-hours').value; if(grade && parseInt(grade) >= 0 && name.trim() && hours) { this.state.data.config.subjects.push({ id: this.getNewId(this.state.data.config.subjects), grade: parseInt(grade), name: name.trim(), hours: parseInt(hours), teacherCount: 1 }); renderAndAttach(); } });
                 subjectsList.querySelectorAll('.subject-input').forEach(input => input.addEventListener('change', e => { const subject = this.state.data.config.subjects.find(s => s.id == e.target.dataset.id); const prop = e.target.dataset.prop; subject[prop] = ['grade', 'hours'].includes(prop) ? parseInt(e.target.value) : e.target.value; this.saveData(); }));
                 subjectsList.querySelectorAll('.delete-subject').forEach(button => button.addEventListener('click', e => { this.state.data.config.subjects = this.state.data.config.subjects.filter(s => s.id != e.target.dataset.id); renderAndAttach(); }));
+                this.attachDragAndDropListeners(subjectsList, '.subject-list-item', 'subjectId', this.reorderSubjects.bind(this));
+
+                // Days
+                const daysList = document.getElementById('days-list');
+                daysList.innerHTML = this.state.data.config.days.map(d => `<div draggable="true" data-day-name="${d.name}" class="day-list-item flex items-center space-x-2 p-1 rounded-md cursor-grab"><span class="font-medium w-16">${d.name}曜日</span><input type="number" min="1" class="day-periods-input border rounded px-2 py-1 w-20" value="${d.periods}" data-name="${d.name}"><button data-name="${d.name}" class="delete-day text-red-500 hover:text-red-700 text-sm ml-auto">削除</button></div>`).join('');
+                document.getElementById('add-day').addEventListener('click', () => {
+                    const nameInput = document.getElementById('new-day-name');
+                    const periodsInput = document.getElementById('new-day-periods');
+                    const name = nameInput.value;
+                    const periods = parseInt(periodsInput.value);
+                    if (name && periods > 0) {
+                        if (this.state.data.config.days.some(d => d.name === name)) {
+                            this.renderAlertModal('その曜日は既に追加されています。');
+                            return;
+                        }
+                        this.state.data.config.days.push({ name, periods });
+                        renderAndAttach();
+                    }
+                });
+                daysList.querySelectorAll('.day-periods-input').forEach(input => {
+                    input.addEventListener('change', (e) => {
+                        const dayName = e.target.dataset.name;
+                        const day = this.state.data.config.days.find(d => d.name === dayName);
+                        if(day) {
+                            day.periods = parseInt(e.target.value) || 1;
+                            this.saveData();
+                        }
+                    });
+                });
+                daysList.querySelectorAll('.delete-day').forEach(button => {
+                    button.addEventListener('click', (e) => {
+                        const dayNameToDelete = e.target.dataset.name;
+                        this.state.data.config.days = this.state.data.config.days.filter(d => d.name !== dayNameToDelete);
+                        renderAndAttach();
+                    });
+                });
+                this.attachDragAndDropListeners(daysList, '.day-list-item', 'dayName', this.reorderDays.bind(this));
             },
 
             renderCanTeachModal(teacherId) {
@@ -420,6 +463,22 @@
             
             reorderTeachers(draggedId, beforeId) { this.reorderGeneric(this.state.data.teachers, draggedId, beforeId); },
             reorderClasses(draggedId, beforeId) { this.reorderGeneric(this.state.data.classes, draggedId, beforeId); },
+            reorderSubjects(draggedId, beforeId) { this.reorderGeneric(this.state.data.config.subjects, draggedId, beforeId); },
+            reorderDays(draggedName, beforeName) {
+                const array = this.state.data.config.days;
+                if (draggedName === beforeName) return;
+                const draggedIndex = array.findIndex(item => item.name === draggedName);
+                if (draggedIndex === -1) return;
+                const [draggedItem] = array.splice(draggedIndex, 1);
+                if (beforeName === null) {
+                    array.push(draggedItem);
+                } else {
+                    const beforeIndex = array.findIndex(item => item.name === beforeName);
+                    array.splice(beforeIndex, 0, draggedItem);
+                }
+                this.saveData();
+            },
+
             reorderGeneric(array, draggedId, beforeId) {
                 if (draggedId === beforeId) return;
                 const draggedIndex = array.findIndex(item => item.id == draggedId);
