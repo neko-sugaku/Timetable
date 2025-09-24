@@ -7,9 +7,30 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
+        html, body {
+            height: 100%;
+            overflow: hidden; /* bodyのスクロールを無効化 */
+        }
         body {
             font-family: 'Inter', 'Noto Sans JP', sans-serif;
             -webkit-print-color-adjust: exact;
+        }
+        #app-container {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+        #sticky-header {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            background-color: #f9fafb; /* bg-gray-50 */
+            flex-shrink: 0;
+        }
+        #app-content {
+            flex-grow: 1;
+            overflow-y: auto; /* この領域をスクロールさせる */
+            padding: 1rem;
         }
         .tab-button { transition: all 0.3s; }
         .tab-button.active { border-color: #4f46e5; color: #4f46e5; font-weight: 600; }
@@ -25,7 +46,7 @@
         .timetable-cell select { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
 
         .timetable-data-cell {
-            height: 50px; /* セルの高さはここで調整 */
+            height: 50px;
             padding: 2px;
             font-size: 12px;
             line-height: 1.3;
@@ -38,20 +59,20 @@
             width: 100%;
         }
         .teacher-timetable .timetable-data-cell {
-            pointer-events: none; /* Make the text unclickable so the underlying select works */
+            pointer-events: none;
         }
-
-        /* Set a fixed width for the first column (Teacher/Class Name) */
         .teacher-timetable th:first-child,
         .class-timetable-list th:first-child {
             width: 80px;
         }
-
-        /* Set a fixed width for all other columns (Time Slots) */
         .teacher-timetable tr > *:not(:first-child),
         .class-timetable-list tr > *:not(:first-child) {
             width: 50px;
             text-align: center;
+        }
+        
+        .day-divider {
+            border-right: 2px solid #6b7280;
         }
 
         .display-timetable { table-layout: fixed; width: 100%; }
@@ -61,90 +82,178 @@
         .display-timetable td span { font-size: 25px; }
         .assignment-incomplete { background-color: #fecaca !important; padding: 4px; border-radius: 4px; }
         
-        /* Modal styles */
         .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; z-index: 1000; }
         .modal-content { background: white; padding: 2rem; border-radius: 0.5rem; max-height: 80vh; overflow-y: auto; }
         
-        /* Custom Tooltip */
         #custom-tooltip {
             pointer-events: none;
             white-space: pre-wrap;
-            transition: opacity 0.1s;
+            transition: opacity: 0.1s;
         }
         
-        /* Drag and Drop styles */
         .dragging { opacity: 0.5; }
         .drag-over { border-top: 2px solid #4f46e5; }
         .drag-over-bottom { border-bottom: 2px solid #4f46e5; }
 
-        /* Print Styles */
+        /* --- ▼▼▼ ここから印刷スタイル ▼▼▼ --- */
         @media print {
             @page {
-                size: A4;
+                size: A4 portrait; /* A4縦に指定 */
                 margin: 1cm;
             }
-            body.print-list-view {
-                @page { size: A3 portrait; }
+             /* 印刷時はスクロールコンテナを解除 */
+            html, body, #app-container, #app-content {
+                height: auto;
+                overflow: visible;
             }
-            body * { visibility: hidden; }
-            .printable-area, .printable-area * { visibility: visible; }
-            .printable-area { 
+            #sticky-header {
+                position: static;
+            }
+            /* 最初に印刷対象外のものを全て非表示に */
+            body > * {
+                visibility: hidden;
+            }
+            .no-print, .modal-overlay, #custom-tooltip {
+                display: none !important;
+            }
+            
+            /* 印刷コンテナとその中身だけを表示する */
+            #print-container, #print-container * {
+                visibility: visible;
+            }
+            #print-container { 
                 position: absolute; 
                 left: 0; 
                 top: 0; 
                 width: 100%;
+                height: 100%;
             }
-            body.print-list-view #teacher-timetable-container,
-            body.print-list-view #class-timetable-list-container {
-                transform: scale(0.7);
-                transform-origin: top left;
-                width: 142%;
+            
+            /* 【教員・学級時間割用】1ページに収めるためのスタイル */
+            .printable-single-page {
+                height: 97vh; /* ページの高さにフィットさせる(余白を確保) */
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
             }
-            .class-timetable-print-wrapper { 
-                page-break-after: always;
-                transform: scale(0.75);
-                transform-origin: top left;
-                width: 133%;
+            .printable-single-page h2 {
+                display: none;
             }
-            .no-print, .modal-overlay, #custom-tooltip { display: none; }
+            .printable-single-page .table-container {
+                overflow: hidden; /* コンテナからはみ出さない */
+                flex-grow: 1; /* 残りの高さいっぱいに広がる */
+            }
+            .printable-single-page table {
+                width: 100%;
+                border-collapse: collapse;
+                table-layout: fixed;
+                font-size: 6.5pt; /* 文字を小さくして収まりやすくする */
+                border: 1px solid #333;
+            }
+            .printable-single-page th, .printable-single-page td {
+                padding: 1px 2px !important;
+                border: 1px solid #333;
+                overflow-wrap: break-word; /* 長い文字は折り返す */
+                line-height: 1.1;
+                width: auto !important; /* スクリーン用の固定幅を解除し、幅を自動調整 */
+            }
+            .printable-single-page .day-divider {
+                border-right: 2px solid #333;
+            }
+            .printable-single-page .timetable-data-cell {
+                height: auto; /* 高さを自動調整 */
+                font-size: inherit; /* 親のフォントサイズを継承 */
+                justify-content: center;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+            }
+             .printable-single-page select {
+                display: none; /* 印刷時にセレクトボックスは非表示 */
+            }
+            .printable-single-page td span {
+                font-size: 0.9em; /* 教科名より少し小さくする */
+            }
+
+            /* 【掲示用時間割用】学級ごとに改ページするスタイル */
+            .printable-class-page {
+                page-break-after: always; /* この要素の後で改ページ */
+                height: 95vh; /* 各ページの高さを確保 */
+                width: 100%;
+                display: flex;
+                flex-direction: column;
+                padding-top: 1cm;
+            }
+            .printable-class-page:last-child {
+                page-break-after: auto; /* 最後の要素では改ページしない */
+            }
+            .printable-class-page h3 {
+                text-align: center;
+                font-size: 20pt;
+                font-weight: bold;
+                margin-bottom: 1rem;
+            }
+            .printable-class-page table {
+                width: 100%;
+                border-collapse: collapse;
+                table-layout: fixed;
+            }
+            .printable-class-page th, .printable-class-page td {
+                border: 1px solid #333;
+                height: 10vh; /* 高さを調整 */
+                font-size: 14pt;
+                text-align: center;
+                vertical-align: middle;
+            }
+             .printable-class-page td span {
+                 font-size: 10pt;
+             }
         }
+        /* --- ▲▲▲ ここまで印刷スタイル ▲▲▲ --- */
     </style>
 </head>
 <body class="bg-gray-50 text-gray-800">
-    <div id="modal-container"></div>
-    <div id="custom-tooltip" class="hidden absolute z-50 p-2 text-sm bg-gray-800 text-white rounded-md shadow-lg"></div>
+    <div id="app-container">
+        <div id="modal-container"></div>
+        <div id="custom-tooltip" class="hidden absolute z-50 p-2 text-sm bg-gray-800 text-white rounded-md shadow-lg"></div>
 
-    <div class="container mx-auto p-4 md:p-6">
-        <header class="mb-6 flex justify-between items-center">
-            <div>
-                <h1 class="text-3xl font-bold text-gray-900">時間割管理アプリ</h1>
-                <p class="text-gray-600 mt-1">教員・学級ごとの時間割を効率的に管理します。</p>
-            </div>
-            <div class="no-print flex items-center space-x-2">
-                 <button id="import-btn" class="bg-green-600 text-white font-semibold py-2 px-4 rounded-md hover:bg-green-700 transition duration-300 shadow flex items-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                    インポート
-                 </button>
-                 <button id="export-btn" class="bg-blue-600 text-white font-semibold py-2 px-4 rounded-md hover:bg-blue-700 transition duration-300 shadow flex items-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
-                    エクスポート
-                 </button>
-                 <button id="print-btn" class="bg-indigo-600 text-white font-semibold py-2 px-4 rounded-md hover:bg-indigo-700 transition duration-300 shadow flex items-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
-                    印刷
-                 </button>
-                 <input type="file" id="import-file-input" class="hidden" accept=".json">
-            </div>
-        </header>
-
-        <nav class="flex border-b border-gray-200 mb-6 no-print">
-            <button id="settings-tab" class="tab-button py-3 px-6 border-b-2 border-transparent text-gray-500 hover:bg-gray-100">基本設定</button>
-            <button id="assignment-tab" class="tab-button py-3 px-6 border-b-2 border-transparent text-gray-500 hover:bg-gray-100">担当割り当て</button>
-            <button id="teacher-tab" class="tab-button py-3 px-6 border-b-2 border-transparent text-gray-500 hover:bg-gray-100">教員時間割</button>
-            <button id="class-list-tab" class="tab-button py-3 px-6 border-b-2 border-transparent text-gray-500 hover:bg-gray-100">学級時間割</button>
-            <button id="display-tab" class="tab-button py-3 px-6 border-b-2 border-transparent text-gray-500 hover:bg-gray-100">掲示用時間割</button>
-        </nav>
+        <!-- ▼▼▼ 印刷専用の非表示コンテナを追加 ▼▼▼ -->
+        <div id="print-container"></div>
         
+        <!-- ▼▼▼ スクロールしても固定されるヘッダー ▼▼▼ -->
+        <div id="sticky-header" class="px-4 md:px-6 pt-4 md:pt-6">
+            <header class="mb-6 flex justify-between items-center">
+                <div>
+                    <h1 class="text-3xl font-bold text-gray-900">時間割管理アプリ</h1>
+                    <p class="text-gray-600 mt-1">教員・学級ごとの時間割を効率的に管理します。</p>
+                </div>
+                <div class="no-print flex items-center space-x-2">
+                    <button id="import-btn" class="bg-green-600 text-white font-semibold py-2 px-4 rounded-md hover:bg-green-700 transition duration-300 shadow flex items-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                        インポート
+                    </button>
+                    <button id="export-btn" class="bg-blue-600 text-white font-semibold py-2 px-4 rounded-md hover:bg-blue-700 transition duration-300 shadow flex items-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                        エクスポート
+                    </button>
+                    <button id="print-btn" class="bg-indigo-600 text-white font-semibold py-2 px-4 rounded-md hover:bg-indigo-700 transition duration-300 shadow flex items-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
+                        印刷
+                    </button>
+                    <input type="file" id="import-file-input" class="hidden" accept=".json">
+                </div>
+            </header>
+
+            <nav class="flex border-b border-gray-200 no-print">
+                <button id="settings-tab" class="tab-button py-3 px-6 border-b-2 border-transparent text-gray-500 hover:bg-gray-100">基本設定</button>
+                <button id="assignment-tab" class="tab-button py-3 px-6 border-b-2 border-transparent text-gray-500 hover:bg-gray-100">担当割り当て</button>
+                <button id="teacher-tab" class="tab-button py-3 px-6 border-b-2 border-transparent text-gray-500 hover:bg-gray-100">教員時間割</button>
+                <button id="class-list-tab" class="tab-button py-3 px-6 border-b-2 border-transparent text-gray-500 hover:bg-gray-100">学級時間割</button>
+                <button id="display-tab" class="tab-button py-3 px-6 border-b-2 border-transparent text-gray-500 hover:bg-gray-100">掲示用時間割</button>
+            </nav>
+        </div>
+        <!-- ▲▲▲ スクロールしても固定されるヘッダー ▲▲▲ -->
+
         <main id="app-content"></main>
     </div>
 
@@ -164,13 +273,15 @@
                 } else {
                     this.state.data = {
                         config: {
-                            days: [{ name: "月", periods: 5 }, { name: "火", periods: 6 }, { name: "水", periods: 6 }, { name: "木", periods: 5 }, { name: "金", periods: 6 }],
+                            days: [{ name: "月", periods: 6 }, { name: "火", periods: 6 }, { name: "水", periods: 6 }, { name: "木", periods: 6 }, { name: "金", periods: 6 }],
                             subjects: [
                                 { id: 1, grade: 1, name: '国語', hours: 4, teacherCount: 1 }, { id: 2, grade: 1, name: '数学', hours: 4, teacherCount: 1 }, { id: 3, grade: 1, name: '英語', hours: 4, teacherCount: 1 }, { id: 4, grade: 2, name: '数学', hours: 3, teacherCount: 1 }, { id: 5, grade: 3, name: '社会', hours: 4, teacherCount: 1 }, { id: 6, grade: 1, name: '理科', hours: 3, teacherCount: 1 },
                             ],
                         },
                         teachers: [
-                            { id: 1, name: '佐藤先生', canTeach: [{grade: 1, name: '数学'}, {grade: 2, name: '数学'}] }, { id: 2, name: '鈴木先生', canTeach: [{grade: 1, name: '英語'}] }, { id: 3, name: '高橋先生', canTeach: [{grade: 1, name: '国語'}] },
+                            { id: 1, name: '佐藤先生', canTeach: [{grade: 1, name: '数学', type: 'main'}, {grade: 2, name: '数学', type: 'main'}] }, 
+                            { id: 2, name: '鈴木先生', canTeach: [{grade: 1, name: '英語', type: 'main'}] }, 
+                            { id: 3, name: '高橋先生', canTeach: [{grade: 1, name: '国語', type: 'main'}] },
                         ],
                         classes: [{ id: 1, name: '1-1', grade: 1 }, { id: 2, name: '1-2', grade: 1 }, { id: 3, name: '2-1', grade: 2 }],
                         assignments: [{ teacherIds: [1], classId: 1, subject: '数学' }, { teacherIds: [1], classId: 2, subject: '数学' }, { teacherIds: [3], classId: 1, subject: '国語' }],
@@ -211,13 +322,37 @@
             },
             
             printView() {
-                const listViews = ['teacher-tab', 'class-list-tab'];
-                if (listViews.includes(this.state.currentView)) {
-                    document.body.classList.add('print-list-view');
+                const printContainer = document.getElementById('print-container');
+                if (!printContainer) return;
+
+                let printHTML = '';
+                const currentView = this.state.currentView;
+
+                if (currentView === 'teacher-tab' || currentView === 'class-list-tab') {
+                    const containerId = currentView === 'teacher-tab' ? 'teacher-timetable-container' : 'class-timetable-list-container';
+                    const sourceContainer = document.getElementById(containerId);
+                    if (sourceContainer) {
+                        const clonedContent = sourceContainer.cloneNode(true);
+                        clonedContent.className = 'printable-single-page'; // クラスを印刷用に全置換
+                        printHTML = clonedContent.outerHTML;
+                    }
+                } else if (currentView === 'display-tab') {
+                    const displayWrappers = document.querySelectorAll('.class-timetable-print-wrapper');
+                    let allClassHTML = '';
+                    displayWrappers.forEach(wrapper => {
+                        const clonedWrapper = wrapper.cloneNode(true);
+                        clonedWrapper.className = 'printable-class-page'; // クラスを印刷用に全置換
+                        allClassHTML += clonedWrapper.outerHTML;
+                    });
+                    printHTML = allClassHTML;
+                } else {
+                    this.renderAlertModal('このビューは印刷できません。');
+                    return;
                 }
+
+                printContainer.innerHTML = printHTML;
                 window.print();
-                // Use setTimeout to ensure the class is removed after the print dialog is handled
-                setTimeout(() => document.body.classList.remove('print-list-view'), 500);
+                printContainer.innerHTML = ''; // 印刷後にクリア
             },
 
             renderAlertModal(message) {
@@ -255,7 +390,7 @@
                     try {
                         const importedData = JSON.parse(e.target.result);
                         if (importedData.config && importedData.teachers && importedData.classes && importedData.assignments && importedData.timetable) {
-                             this.renderConfirmationModal(
+                            this.renderConfirmationModal(
                                 '現在のデータを上書きして、ファイルをインポートしますか？この操作は元に戻せません。',
                                 () => {
                                     this.state.data = importedData;
@@ -276,7 +411,7 @@
             },
             
             renderSettings() {
-                 return `<div class="bg-white p-6 rounded-lg shadow-md grid grid-cols-1 md:grid-cols-2 gap-8">
+                return `<div class="bg-white p-6 rounded-lg shadow-md grid grid-cols-1 md:grid-cols-2 gap-8">
                     <div><h3 class="text-lg font-bold mb-2">教員の設定</h3><div id="teachers-list" class="space-y-2 mb-2"></div><div class="flex space-x-2"><input type="text" id="new-teacher-name" class="border rounded px-2 py-1 w-full max-w-xs" placeholder="新しい教員名"><button id="add-teacher" class="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 text-sm">追加</button></div></div>
                     <div><h3 class="text-lg font-bold mb-2">学級の設定</h3><div id="classes-list" class="space-y-2 mb-2"></div><div class="flex space-x-2"><input type="text" id="new-class-name" class="border rounded px-2 py-1 w-24" placeholder="学級名"><input type="number" id="new-class-grade" min="0" class="border rounded px-2 py-1 w-20" placeholder="学年"><button id="add-class" class="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 text-sm">追加</button></div></div>
                     <div><h3 class="text-lg font-bold mb-2">教科と週時間数の設定</h3><div id="subjects-list" class="space-y-2 mb-2"></div><div class="flex space-x-2"><input type="number" id="new-subject-grade" min="0" class="border rounded px-2 py-1 w-20" placeholder="学年"><input type="text" id="new-subject-name" class="border rounded px-2 py-1 w-24" placeholder="教科名"><input type="number" id="new-subject-hours" class="border rounded px-2 py-1 w-20" placeholder="時間数"><button id="add-subject" class="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 text-sm">追加</button></div></div>
@@ -290,8 +425,11 @@
                 // Teachers
                 const teachersList = document.getElementById('teachers-list');
                 teachersList.innerHTML = this.state.data.teachers.map(t => {
-                    const canTeachStr = t.canTeach.map(ct => `${ct.grade}年${ct.name}`).join(', ');
-                    return `<div draggable="true" data-teacher-id="${t.id}" class="teacher-list-item flex items-center space-x-2 flex-wrap p-1 rounded-md cursor-grab"><input type="text" value="${t.name}" data-id="${t.id}" class="teacher-name-input border rounded px-2 py-1 w-full max-w-[150px]"><button data-id="${t.id}" class="edit-can-teach-btn text-blue-500 hover:text-blue-700 text-sm">担当教科</button><span class="text-xs text-gray-600">${canTeachStr}</span><button data-id="${t.id}" class="delete-teacher text-red-500 hover:text-red-700 text-sm ml-auto">削除</button></div>`;
+                    const canTeachStr = (t.canTeach || []).map(ct => {
+                        const base = `${ct.grade}年${ct.name}`;
+                        return ct.type === 'TT' ? `${base}(TT/${ct.hours}h)` : base;
+                    }).join(', ');
+                    return `<div draggable="true" data-teacher-id="${t.id}" class="teacher-list-item flex items-center space-x-2 flex-wrap p-1 rounded-md cursor-grab"><input type="text" value="${t.name}" data-id="${t.id}" class="teacher-name-input border rounded px-2 py-1 w-full max-w-[150px]"><button data-id="${t.id}" class="edit-can-teach-btn text-blue-500 hover:text-blue-700 text-sm">担当教科</button><span class="text-xs text-gray-600 flex-1 min-w-0">${canTeachStr}</span><button data-id="${t.id}" class="delete-teacher text-red-500 hover:text-red-700 text-sm ml-auto">削除</button></div>`;
                 }).join('');
                 document.getElementById('add-teacher').addEventListener('click', () => { const input = document.getElementById('new-teacher-name'); if (input.value.trim()) { this.state.data.teachers.push({ id: this.getNewId(this.state.data.teachers), name: input.value.trim(), canTeach: [] }); renderAndAttach(); } });
                 teachersList.querySelectorAll('.teacher-name-input').forEach(input => input.addEventListener('change', (e) => { this.state.data.teachers.find(t => t.id == e.target.dataset.id).name = e.target.value; this.saveData(); }));
@@ -364,25 +502,65 @@
 
             renderCanTeachModal(teacherId) {
                 const teacher = this.state.data.teachers.find(t => t.id === teacherId);
-                const allSubjects = [...new Set(this.state.data.config.subjects.map(s => `${s.grade}学年 ${s.name}`))];
-                let checkboxes = allSubjects.map(subjectStr => {
-                    const [grade, name] = [parseInt(subjectStr), subjectStr.split(' ')[1]];
-                    const isChecked = teacher.canTeach.some(ct => ct.grade === grade && ct.name === name);
-                    return `<div><label><input type="checkbox" class="can-teach-checkbox" value="${grade}|${name}" ${isChecked ? 'checked' : ''}> ${subjectStr}</label></div>`;
+                const groupedSubjects = this.state.data.config.subjects.reduce((acc, s) => {
+                    const key = `${s.grade}|${s.name}`;
+                    if (!acc[key]) acc[key] = s;
+                    return acc;
+                }, {});
+
+                let subjectRows = Object.values(groupedSubjects).map(subject => {
+                    const mainEntry = (teacher.canTeach || []).find(ct => ct.grade === subject.grade && ct.name === subject.name && ct.type === 'main');
+                    const isMain = !!mainEntry;
+                    
+                    const ttEntry = (teacher.canTeach || []).find(ct => ct.grade === subject.grade && ct.name === subject.name && ct.type === 'TT');
+                    const isTT = !!ttEntry;
+
+                    const hours = isTT ? ttEntry.hours : 1;
+
+                    return `<div class="grid grid-cols-3 items-center gap-2 border-b py-2">
+                        <span class="text-sm">${subject.grade}年 ${subject.name}</span>
+                        <label class="text-sm flex items-center"><input type="checkbox" class="can-teach-main" data-grade="${subject.grade}" data-name="${subject.name}" ${isMain ? 'checked' : ''}>&nbsp;教科担任</label>
+                        <div class="flex items-center">
+                            <label class="text-sm flex items-center"><input type="checkbox" class="can-teach-tt" data-grade="${subject.grade}" data-name="${subject.name}" ${isTT ? 'checked' : ''}>&nbsp;TT</label>
+                            <input type="number" min="1" value="${hours}" class="tt-hours-input border rounded w-16 px-1 py-0.5 ml-2 text-sm" ${isTT ? '' : 'disabled'}>
+                        </div>
+                    </div>`;
                 }).join('');
-                const modalHTML = `<div id="can-teach-modal" class="modal-overlay"><div class="modal-content"><h3 class="text-lg font-bold mb-4">${teacher.name} の担当可能な教科</h3><div class="space-y-2">${checkboxes}</div><div class="mt-6 text-right"><button id="save-can-teach" class="bg-blue-500 text-white px-4 py-2 rounded">保存</button><button id="close-modal" class="ml-2 bg-gray-300 px-4 py-2 rounded">閉じる</button></div></div></div>`;
+
+                const modalHTML = `<div id="can-teach-modal" class="modal-overlay"><div class="modal-content"><h3 class="text-lg font-bold mb-4">${teacher.name} の担当可能な教科</h3><div class="space-y-1">${subjectRows}</div><div class="mt-6 text-right"><button id="save-can-teach" class="bg-blue-500 text-white px-4 py-2 rounded">保存</button><button id="close-modal" class="ml-2 bg-gray-300 px-4 py-2 rounded">閉じる</button></div></div></div>`;
                 document.getElementById('modal-container').innerHTML = modalHTML;
+                
+                document.querySelectorAll('.can-teach-tt').forEach(checkbox => {
+                    checkbox.addEventListener('change', e => {
+                        const hoursInput = e.target.closest('div.flex').querySelector('.tt-hours-input');
+                        if (hoursInput) {
+                            hoursInput.disabled = !e.target.checked;
+                        }
+                    });
+                });
+
                 document.getElementById('save-can-teach').addEventListener('click', () => this.saveCanTeach(teacherId));
                 document.getElementById('close-modal').addEventListener('click', () => document.getElementById('modal-container').innerHTML = '');
             },
             
             saveCanTeach(teacherId) {
                 const teacher = this.state.data.teachers.find(t => t.id === teacherId);
-                teacher.canTeach = [];
-                document.querySelectorAll('.can-teach-checkbox:checked').forEach(cb => {
-                    const [grade, name] = cb.value.split('|');
-                    teacher.canTeach.push({ grade: parseInt(grade), name: name });
+                const newCanTeach = [];
+                document.querySelectorAll('#can-teach-modal .grid.grid-cols-3').forEach(row => {
+                    const mainCb = row.querySelector('.can-teach-main');
+                    const ttCb = row.querySelector('.can-teach-tt');
+                    const hoursInput = row.querySelector('.tt-hours-input');
+                    const grade = parseInt(mainCb.dataset.grade);
+                    const name = mainCb.dataset.name;
+                    
+                    if (mainCb.checked) {
+                        newCanTeach.push({ grade, name, type: 'main' });
+                    }
+                    if (ttCb.checked) {
+                        newCanTeach.push({ grade, name, type: 'TT', hours: parseInt(hoursInput.value) || 1 });
+                    }
                 });
+                teacher.canTeach = newCanTeach;
                 this.saveData();
                 document.getElementById('modal-container').innerHTML = '';
                 this.render();
@@ -395,10 +573,21 @@
                 uniqueSubjects.forEach(subject => {
                     const classesInGrade = classes.filter(c => c.grade === subject.grade);
                     if (classesInGrade.length === 0) return;
-                    const qualifiedTeachers = teachers.filter(t => t.canTeach.some(ct => ct.grade === subject.grade && ct.name === subject.name));
-                    const teacherOptions = `<option value="">-</option>${qualifiedTeachers.map(t => `<option value="${t.id}">${t.name}</option>`).join('')}`;
+                    
                     let tableRows = '';
                     for (let i = 0; i < subject.teacherCount; i++) {
+                        let rowLabel = '';
+                        let teacherOptions = '';
+                        if (i === 0) {
+                            rowLabel = '<th class="p-1 text-xs font-normal text-right pr-2">教科担任</th>';
+                            const qualifiedTeachers = teachers.filter(t => (t.canTeach || []).some(ct => ct.grade === subject.grade && ct.name === subject.name && ct.type === 'main'));
+                            teacherOptions = `<option value="">-</option>${qualifiedTeachers.map(t => `<option value="${t.id}">${t.name}</option>`).join('')}`;
+                        } else {
+                            rowLabel = `<th class="p-1 text-xs font-normal text-right pr-2">TT</th>`;
+                            const qualifiedTeachers = teachers.filter(t => (t.canTeach || []).some(ct => ct.grade === subject.grade && ct.name === subject.name && ct.type === 'TT'));
+                            teacherOptions = `<option value="">-</option>${qualifiedTeachers.map(t => `<option value="${t.id}">${t.name}</option>`).join('')}`;
+                        }
+
                         let rowTds = '';
                         classesInGrade.forEach(c => {
                             const assignment = assignments.find(a => a.classId === c.id && a.subject === subject.name) || { teacherIds: [] };
@@ -406,11 +595,11 @@
                             let select = `<select data-class-id="${c.id}" data-subject="${subject.name}" data-index="${i}" class="assignment-select border rounded px-2 py-1 w-full text-sm">${teacherOptions}</select>`;
                             rowTds += `<td class="p-1 align-top">${teacherId ? select.replace(`value="${teacherId}"`, `value="${teacherId}" selected`) : select}</td>`;
                         });
-                        tableRows += `<tr>${rowTds}</tr>`;
+                        tableRows += `<tr>${rowLabel}${rowTds}</tr>`;
                     }
                     const isComplete = (classesInGrade.every(c => { const assignment = assignments.find(a => a.classId === c.id && a.subject === subject.name); return assignment && assignment.teacherIds[0]; }));
                     const headerClass = isComplete ? '' : 'assignment-incomplete';
-                    html += `<div><div class="flex items-center space-x-4 mb-2"><h4 class="${headerClass} text-md font-bold">${subject.grade}学年 ${subject.name}</h4><label class="text-sm">教員数: <input type="number" min="1" value="${subject.teacherCount}" data-subject-id="${subject.id}" class="teacher-count-input border rounded w-16 px-1 py-0.5"></label></div><div class="table-container"><table class="w-full text-center"><thead><tr>${classesInGrade.map(c => `<th class="p-1 text-sm font-normal">${c.name}</th>`).join('')}</tr></thead><tbody>${tableRows}</tbody></table></div></div>`;
+                    html += `<div><div class="flex items-center space-x-4 mb-2"><h4 class="${headerClass} text-md font-bold">${subject.grade}学年 ${subject.name}</h4><label class="text-sm">教員数: <input type="number" min="1" value="${subject.teacherCount}" data-subject-id="${subject.id}" class="teacher-count-input border rounded w-16 px-1 py-0.5"></label></div><div class="table-container"><table class="w-full text-center"><thead><tr><th class="w-20"></th>${classesInGrade.map(c => `<th class="p-1 text-sm font-normal">${c.name}</th>`).join('')}</tr></thead><tbody>${tableRows}</tbody></table></div></div>`;
                 });
                 html += '</div>';
                 return html;
@@ -438,62 +627,173 @@
             renderTeacherTimetable() {
                 const { days } = this.state.data.config;
                 const { teachers, assignments, classes } = this.state.data;
-                let header = `<tr><th class="p-2 border bg-gray-100 sticky left-0 z-10">教員名</th>${days.map(day => Array.from({length: day.periods}, (_, j) => `<th class="p-2 border bg-gray-100">${day.name}${j+1}</th>`).join('')).join('')}</tr>`;
+                
+                let dayEndColumns = [];
+                let periodCount = 0;
+                days.forEach(day => {
+                    periodCount += day.periods;
+                    dayEndColumns.push(periodCount);
+                });
+
+                let header = `<tr><th class="p-2 border bg-gray-100 sticky left-0 z-10">教員名</th>${days.map(day => Array.from({length: day.periods}, (_, j) => {
+                    const colIndex = dayEndColumns[days.indexOf(day)] - day.periods + j + 1;
+                    const isLast = dayEndColumns.includes(colIndex);
+                    return `<th class="p-2 border bg-gray-100 ${isLast ? 'day-divider' : ''}">${day.name}${j+1}</th>`;
+                }).join('')).join('')}</tr>`;
+
                 let body = teachers.map(teacher => {
+                    let currentPeriod = 0;
                     const cells = days.map((day, dayIndex) => {
                         return Array.from({length: day.periods}, (_, periodIndex) => {
+                            currentPeriod++;
                             const key = `${teacher.id}_${dayIndex}_${periodIndex}`;
-                            const selectedAssignmentIndex = this.state.data.timetable[key];
-                            const currentAssignment = this.state.data.assignments[selectedAssignmentIndex];
-                            const options = this.state.data.assignments.map((a, index) => ({...a, originalIndex: index})).filter(a => a.teacherIds.includes(teacher.id)).map(a => `<option value="${a.originalIndex}" ${a.originalIndex == selectedAssignmentIndex ? 'selected' : ''}>${classes.find(c=>c.id===a.classId)?.name || ''} ${a.subject}</option>`).join('');
+                            const timetableValue = this.state.data.timetable[key];
+                            
+                            const mainOptions = this.state.data.assignments
+                                .map((a, index) => ({...a, originalIndex: index}))
+                                .filter(a => a.teacherIds[0] === teacher.id)
+                                .map(a => `<option value="main_${a.originalIndex}" ${timetableValue === `main_${a.originalIndex}` ? 'selected' : ''}>${classes.find(c=>c.id===a.classId)?.name || ''} ${a.subject}</option>`)
+                                .join('');
+
+                            const ttAssignments = this.state.data.assignments
+                                .filter(a => a.teacherIds.slice(1).includes(teacher.id)); 
+                            
+                            const uniqueTTRoles = [...new Map(ttAssignments.map(item => [`${item.classId}|${item.subject}`, item])).values()];
+
+                            const ttOptions = uniqueTTRoles.map(a => {
+                                const classInfo = classes.find(c => c.id === a.classId);
+                                if (!classInfo) return '';
+                                const value = `tt_${classInfo.id}_${a.subject}`;
+                                return `<option value="${value}" ${timetableValue === value ? 'selected' : ''}>${classInfo.name} TT ${a.subject}</option>`;
+                            }).join('');
+
                             let displayText = '-';
-                            if (currentAssignment) { displayText = `${classes.find(c=>c.id===currentAssignment.classId)?.name || ''}<br>${currentAssignment.subject}`; }
-                            return `<td class="border timetable-cell" data-day-index="${dayIndex}" data-period-index="${periodIndex}">
+                            if (timetableValue) {
+                                const [type, ...rest] = timetableValue.split('_');
+                                if (type === 'main') {
+                                    const assignment = this.state.data.assignments[rest[0]];
+                                    if(assignment) displayText = `${classes.find(c=>c.id===assignment.classId)?.name || ''}<br>${assignment.subject}`;
+                                } else if (type === 'tt') {
+                                    const classId = rest[0];
+                                    const subjectName = rest.slice(1).join('_');
+                                    displayText = `${classes.find(c=>c.id==classId)?.name || ''}<br>TT ${subjectName}`;
+                                }
+                            }
+                            
+                            const isLast = dayEndColumns.includes(currentPeriod);
+                            return `<td class="border timetable-cell ${isLast ? 'day-divider' : ''}" data-day-index="${dayIndex}" data-period-index="${periodIndex}">
                                         <div class="timetable-data-cell">${displayText}</div>
-                                        <select data-teacher-id="${teacher.id}"><option value="">-</option>${options}</select>
+                                        <select data-teacher-id="${teacher.id}"><option value="">-</option>${mainOptions}${ttOptions}</select>
                                     </td>`;
                         }).join('');
                     }).join('');
                     return `<tr draggable="true" data-teacher-id="${teacher.id}" class="teacher-timetable-row"><th id="teacher-th-${teacher.id}" class="teacher-name-th p-2 border bg-gray-100 sticky left-0 z-10 cursor-grab">${teacher.name}</th>${cells}</tr>`;
                 }).join('');
-                return `<div id="teacher-timetable-container" class="bg-white p-6 rounded-lg shadow-md printable-area"><h2 class="text-xl font-bold mb-4">教員別時間割</h2><div class="table-container teacher-timetable"><table class="w-full border-collapse"><thead>${header}</thead><tbody id="teacher-timetable-body">${body}</tbody></table></div></div>`;
+                return `<div id="teacher-timetable-container" class="bg-white p-6 rounded-lg shadow-md"><div class="table-container teacher-timetable"><table class="w-full border-collapse"><thead>${header}</thead><tbody id="teacher-timetable-body">${body}</tbody></table></div></div>`;
             },
             
+            // ### ② ラグとスクロール位置リセットの修正 ###
+            updateTimetableCell(selectElement) {
+                const { teachers, classes, assignments, timetable } = this.state.data;
+                const teacherId = selectElement.dataset.teacherId;
+                const td = selectElement.closest('td');
+                const { dayIndex, periodIndex } = td.dataset;
+                const key = `${teacherId}_${dayIndex}_${periodIndex}`;
+                const value = selectElement.value;
+
+                if (value) {
+                    timetable[key] = value;
+                } else {
+                    delete timetable[key];
+                }
+                this.saveData();
+
+                // 表示を直接更新 (DOM再生成なし)
+                const displayDiv = td.querySelector('.timetable-data-cell');
+                let displayText = '-';
+                if (value) {
+                    const [type, ...rest] = value.split('_');
+                    if (type === 'main') {
+                        const assignment = assignments[rest[0]];
+                        if(assignment) displayText = `${classes.find(c=>c.id===assignment.classId)?.name || ''}<br>${assignment.subject}`;
+                    } else if (type === 'tt') {
+                        const classId = rest[0];
+                        const subjectName = rest.slice(1).join('_');
+                        displayText = `${classes.find(c=>c.id==classId)?.name || ''}<br>TT ${subjectName}`;
+                    }
+                }
+                displayDiv.innerHTML = displayText;
+
+                // バリデーションを実行
+                this.validateAll();
+            },
+
             attachTeacherTimetableListeners() {
                 document.querySelectorAll('#teacher-timetable-container select').forEach(select => {
-                    select.addEventListener('change', (e) => {
-                        const teacherId = e.target.dataset.teacherId;
-                        const td = e.target.closest('td');
-                        const { dayIndex, periodIndex } = td.dataset;
-                        const key = `${teacherId}_${dayIndex}_${periodIndex}`;
-                        const displayTextDiv = td.querySelector('.timetable-data-cell');
-                        if (e.target.value) { this.state.data.timetable[key] = e.target.value; const assignment = this.state.data.assignments[e.target.value]; const className = this.state.data.classes.find(c => c.id === assignment.classId)?.name || 'N/A'; displayTextDiv.innerHTML = `${className}<br>${assignment.subject}`; } else { delete this.state.data.timetable[key]; displayTextDiv.innerHTML = '-'; }
-                        this.saveData(); this.validateAll();
-                    });
+                    select.addEventListener('change', (e) => this.updateTimetableCell(e.target));
                 });
                 const tooltip = document.getElementById('custom-tooltip');
                 document.querySelectorAll('.teacher-name-th').forEach(th => {
                     th.addEventListener('mouseenter', e => {
                         const teacherId = parseInt(th.id.replace('teacher-th-', ''));
-                        const { teachers, assignments, classes, config, timetable } = this.state.data;
-                        const teacher = teachers.find(t => t.id === teacherId);
+                        const teacher = this.state.data.teachers.find(t => t.id === teacherId);
                         if (!teacher) return;
-                        const currentHoursMap = new Map();
-                        for (const key in timetable) {
-                            const [entryTeacherId] = key.split('_');
-                            if (parseInt(entryTeacherId) === teacherId) { const assignmentIndex = timetable[key]; currentHoursMap.set(assignmentIndex, (currentHoursMap.get(assignmentIndex) || 0) + 1); }
+                        const { assignments, classes, config, timetable } = this.state.data;
+                        
+                        // ### ⑤ TTのカウント方法とツールチップ表示の修正 ###
+                        const tooltipLines = [];
+
+                        // Main assignments
+                        assignments.forEach((a, idx) => {
+                            if(a.teacherIds[0] === teacherId) {
+                                const classInfo = classes.find(c => c.id === a.classId);
+                                const subjectInfo = config.subjects.find(s => s.grade === classInfo.grade && s.name === a.subject);
+                                if (subjectInfo) {
+                                    const assigned = Object.values(timetable).filter(v => v === `main_${idx}`).length;
+                                    tooltipLines.push(`${classInfo.name} ${a.subject}: ${subjectInfo.hours}h (あと${subjectInfo.hours - assigned}h)`);
+                                }
+                            }
+                        });
+
+                        // TT assignments
+                        const ttRoles = (teacher.canTeach || []).filter(ct => ct.type === 'TT');
+                        ttRoles.forEach(role => {
+                            const requiredHours = role.hours;
+                            let totalAssignedHours = 0;
+                            const classDetails = [];
+                            
+                            const relevantClasses = classes.filter(c => c.grade === role.grade);
+                            relevantClasses.forEach(c => {
+                                const ttValue = `tt_${c.id}_${role.name}`;
+                                const assignedInClass = Object.entries(timetable).filter(([key, value]) => {
+                                    const [entryTeacherId] = key.split('_');
+                                    return parseInt(entryTeacherId) === teacherId && value === ttValue;
+                                }).length;
+                                
+                                if (assignedInClass > 0) {
+                                    totalAssignedHours += assignedInClass;
+                                    classDetails.push(`  ${c.name} ${role.name}: ${assignedInClass}h`);
+                                }
+                            });
+
+                            const isAssignedAsTT = assignments.some(a => 
+                                a.teacherIds.slice(1).includes(teacherId) &&
+                                classes.find(c => c.id === a.classId)?.grade === role.grade &&
+                                a.subject === role.name
+                            );
+
+                            if (isAssignedAsTT) {
+                                tooltipLines.push(`${role.grade}学年 TT ${role.name}: ${requiredHours}h (あと${requiredHours - totalAssignedHours}h)`);
+                                if (classDetails.length > 0) {
+                                    tooltipLines.push(...classDetails);
+                                }
+                            }
+                        });
+                        
+                        if (tooltipLines.length > 0) { 
+                            tooltip.textContent = tooltipLines.join('\n');
+                            tooltip.classList.remove('hidden'); 
                         }
-                        const teacherAssignments = assignments.map((a, index) => ({ ...a, originalIndex: index.toString() })).filter(a => a.teacherIds.includes(teacher.id));
-                        const tooltipText = teacherAssignments.map(a => {
-                            const className = classes.find(c => c.id === a.classId)?.name || '';
-                            const grade = classes.find(c => c.id === a.classId)?.grade || 0;
-                            const subjectInfo = config.subjects.find(s => s.grade === grade && s.name === a.subject);
-                            const hours = subjectInfo ? subjectInfo.hours : 0;
-                            const currentHours = currentHoursMap.get(a.originalIndex) || 0;
-                            const remainingHours = hours - currentHours;
-                            return `${className} ${a.subject} ${hours}時間 (あと${remainingHours}時間)`;
-                        }).join('\n');
-                        if (tooltipText) { tooltip.textContent = tooltipText; tooltip.classList.remove('hidden'); }
                     });
                     th.addEventListener('mouseleave', () => { tooltip.classList.add('hidden'); });
                     th.addEventListener('mousemove', e => { tooltip.style.left = `${e.pageX + 15}px`; tooltip.style.top = `${e.pageY + 15}px`; });
@@ -569,33 +869,65 @@
             renderClassTimetableList() {
                 const { days } = this.state.data.config;
                 const { classes, teachers, assignments, timetable } = this.state.data;
-                let header = `<tr><th class="p-2 border bg-gray-100 sticky left-0 z-10">学級名</th>${days.map(day => Array.from({length: day.periods}, (_, j) => `<th class="p-2 border bg-gray-100">${day.name}${j+1}</th>`).join('')).join('')}</tr>`;
+                
+                let dayEndColumns = [];
+                let periodCount = 0;
+                days.forEach(day => {
+                    periodCount += day.periods;
+                    dayEndColumns.push(periodCount);
+                });
+
+                let header = `<tr><th class="p-2 border bg-gray-100 sticky left-0 z-10">学級名</th>${days.map(day => Array.from({length: day.periods}, (_, j) => {
+                    const colIndex = dayEndColumns[days.indexOf(day)] - day.periods + j + 1;
+                    const isLast = dayEndColumns.includes(colIndex);
+                    return `<th class="p-2 border bg-gray-100 ${isLast ? 'day-divider' : ''}">${day.name}${j+1}</th>`;
+                }).join('')).join('')}</tr>`;
                 
                 const classTimetableData = {};
                 for (const key in timetable) {
                     const [teacherId, dayIndex, periodIndex] = key.split('_');
-                    const assignment = assignments[timetable[key]];
-                    if (!assignment) continue;
-                    const classId = assignment.classId;
+                    const value = timetable[key];
+                    const [type, ...rest] = value.split('_');
+
+                    let classId, subjectName, teacherNames = '', isTT = false;
+
+                    if (type === 'main') {
+                        const assignment = assignments[rest[0]];
+                        if (!assignment) continue;
+                        classId = assignment.classId;
+                        subjectName = assignment.subject;
+                        teacherNames = assignment.teacherIds.map(tid => teachers.find(t => t.id === tid)?.name || '').filter(name => name).join(', ');
+                    } else if (type === 'tt') {
+                        classId = parseInt(rest[0]);
+                        subjectName = rest.slice(1).join('_');
+                        const assignedTeacher = teachers.find(t => t.id == teacherId);
+                        teacherNames = assignedTeacher ? assignedTeacher.name : '';
+                        isTT = true;
+                    } else {
+                        continue;
+                    }
+
                     if (!classTimetableData[classId]) classTimetableData[classId] = {};
                     const dayName = days[dayIndex]?.name;
                     if (!dayName) continue;
                     if (!classTimetableData[classId][dayName]) classTimetableData[classId][dayName] = {};
-                    const teacherNames = assignment.teacherIds.map(tid => teachers.find(t => t.id === tid)?.name || '').filter(name => name).join(', ');
-                    classTimetableData[classId][dayName][periodIndex] = `${assignment.subject}<br><span class="text-xs text-gray-500">${teacherNames}</span>`;
+                    classTimetableData[classId][dayName][periodIndex] = `${isTT ? 'TT ' : ''}${subjectName}<br><span>${teacherNames}</span>`;
                 }
 
                 let body = classes.map(c => {
+                    let currentPeriod = 0;
                     const cells = days.map((day) => {
                         return Array.from({length: day.periods}, (_, periodIndex) => {
+                            currentPeriod++;
                             const content = classTimetableData[c.id]?.[day.name]?.[periodIndex] || '-';
-                            return `<td class="border"><div class="timetable-data-cell">${content}</div></td>`;
+                            const isLast = dayEndColumns.includes(currentPeriod);
+                            return `<td class="border ${isLast ? 'day-divider' : ''}"><div class="timetable-data-cell">${content}</div></td>`;
                         }).join('');
                     }).join('');
                     return `<tr draggable="true" data-class-id="${c.id}" class="class-timetable-list-row"><th class="p-2 border bg-gray-100 sticky left-0 z-10 cursor-grab">${c.name}</th>${cells}</tr>`;
                 }).join('');
 
-                return `<div id="class-timetable-list-container" class="bg-white p-6 rounded-lg shadow-md printable-area"><h2 class="text-xl font-bold mb-4">学級別時間割一覧</h2><div class="table-container class-timetable-list"><table class="w-full border-collapse"><thead>${header}</thead><tbody id="class-timetable-list-body">${body}</tbody></table></div></div>`;
+                return `<div id="class-timetable-list-container" class="bg-white p-6 rounded-lg shadow-md"><div class="table-container class-timetable-list"><table class="w-full border-collapse"><thead>${header}</thead><tbody id="class-timetable-list-body">${body}</tbody></table></div></div>`;
             },
             
             attachClassTimetableListListeners() {
@@ -604,61 +936,100 @@
                     this.attachDragAndDropListeners(timetableBody, '.class-timetable-list-row', 'classId', this.reorderClasses.bind(this));
                 }
             },
-
             renderDisplayTimetable() {
                 const { days } = this.state.data.config;
                 const { classes, teachers, assignments, timetable } = this.state.data;
                 const maxPeriods = Math.max(0, ...days.map(d => d.periods));
 
-                return `<div class="printable-area">${classes.map(c => {
+                return `<div>${classes.map(c => {
                     const header = `<tr><th></th>${days.map(day => `<th>${day.name}</th>`).join('')}</tr>`;
                     const body = Array.from({length: maxPeriods}, (_, i) => i + 1).map(period => {
                         const cells = days.map((day, dayIndex) => {
-                             if (period > day.periods) return '<td class="bg-gray-100"></td>';
-                             let cellContent = '';
-                             let placedAssignments = new Set();
-                             for (const key in timetable) {
-                                 const [teacherId, dIndex, pIndex] = key.split('_');
-                                 if (dIndex == dayIndex && pIndex == period - 1) {
-                                     const assignmentIndex = timetable[key];
-                                     const assignment = assignments[assignmentIndex];
-                                     if (assignment && assignment.classId === c.id && !placedAssignments.has(assignmentIndex)) {
-                                         const assignedTeachers = teachers.filter(t => assignment.teacherIds.includes(t.id));
-                                         cellContent = `${assignment.subject}<br><span class="text-xs text-gray-500">${assignedTeachers.map(t=>t.name).join(', ')}</span>`;
-                                         placedAssignments.add(assignmentIndex);
-                                     }
-                                 }
-                             }
-                             return `<td class="border text-center">${cellContent || '-'}</td>`;
+                                if (period > day.periods) return '<td class="bg-gray-100"></td>';
+                                let cellContents = [];
+                                for (const key in timetable) {
+                                    const [teacherId, dIndex, pIndex] = key.split('_');
+                                    if (dIndex == dayIndex && pIndex == period - 1) {
+                                        const value = timetable[key];
+                                        const [type, ...rest] = value.split('_');
+                                        let currentClassId, subjectName, teacherName = '', isTT = false;
+                                        
+                                        const currentTeacher = teachers.find(t => t.id == teacherId);
+                                        if (!currentTeacher) continue;
+                                        teacherName = currentTeacher.name;
+
+                                        if (type === 'main') {
+                                            const assignment = assignments[rest[0]];
+                                            if (!assignment || assignment.classId !== c.id) continue;
+                                            subjectName = assignment.subject;
+                                        } else if (type === 'tt') {
+                                            currentClassId = parseInt(rest[0]);
+                                            if (currentClassId !== c.id) continue;
+                                            subjectName = rest.slice(1).join('_');
+                                            isTT = true;
+                                        } else {
+                                            continue;
+                                        }
+                                        cellContents.push(`${isTT ? 'TT ' : ''}${subjectName}<br><span class="text-xs text-gray-500">${teacherName}</span>`);
+                                    }
+                                }
+                                return `<td class="border text-center">${cellContents.join('<hr class="my-1">') || '-'}</td>`;
                         }).join('');
                         return `<tr><td class="font-bold border bg-gray-100">${period}</td>${cells}</tr>`;
                     }).join('');
 
-                    return `<div class="bg-white p-6 rounded-lg shadow-md mb-6 class-timetable-print-wrapper"><h3 class="text-lg font-bold mb-4">${c.name} 掲示用時間割</h3><table class="display-timetable border-collapse text-center"><thead>${header}</thead><tbody>${body}</tbody></table></div>`;
+                    return `<div class="class-timetable-print-wrapper bg-white p-6 rounded-lg shadow-md mb-6"><h3 class="text-lg font-bold mb-4">${c.name} 掲示用時間割</h3><table class="display-timetable border-collapse text-center"><thead>${header}</thead><tbody>${body}</tbody></table></div>`;
                 }).join('')}</div>`;
             },
 
-            validateAll() { if (this.state.currentView !== 'teacher-tab') return; this.validateTeacherHours(); this.validateClassConflicts(); },
+            validateAll() { 
+                if (this.state.currentView !== 'teacher-tab') return; 
+                this.validateTeacherHours(); 
+                this.validateClassConflicts(); 
+                this.validateSameClassConflicts();
+            },
             
+            // ### ③ 背景色バグの修正 ###
             validateTeacherHours() {
                 const { teachers, assignments, classes, config, timetable } = this.state.data;
                 if (!teachers || !assignments || !classes || !config || !config.subjects) return;
+
                 teachers.forEach(teacher => {
                     let isTeacherValid = true;
-                    const teacherAssignments = assignments.map((a, i) => ({ ...a, originalIndex: i })).filter(a => a.teacherIds.includes(teacher.id));
-                    const currentHoursMap = new Map();
-                    for (const key in timetable) {
-                        const [entryTeacherId] = key.split('_');
-                        if (parseInt(entryTeacherId) === teacher.id) { const assignmentIndex = timetable[key]; currentHoursMap.set(assignmentIndex, (currentHoursMap.get(assignmentIndex) || 0) + 1); }
-                    }
-                    teacherAssignments.forEach(assign => {
-                        const classInfo = classes.find(c => c.id === assign.classId);
-                        if (!classInfo) return;
-                        const subjectInfo = config.subjects.find(s => s.grade === classInfo.grade && s.name === assign.subject);
-                        const required = subjectInfo ? subjectInfo.hours : 0;
-                        const current = currentHoursMap.get(assign.originalIndex.toString()) || 0;
-                        if (required > 0 && required !== current) { isTeacherValid = false; }
+
+                    // Check main assignments
+                    assignments.forEach((a, idx) => {
+                        if (a.teacherIds[0] === teacher.id) {
+                            const classInfo = classes.find(c => c.id === a.classId);
+                            const subjectInfo = config.subjects.find(s => s.grade === classInfo.grade && s.name === a.subject);
+                            if (subjectInfo) {
+                                const assigned = Object.values(timetable).filter(v => v === `main_${idx}`).length;
+                                if (assigned !== subjectInfo.hours) {
+                                    isTeacherValid = false;
+                                }
+                            }
+                        }
                     });
+
+                    // Check TT assignments
+                    const ttRoles = (teacher.canTeach || []).filter(ct => ct.type === 'TT');
+                    ttRoles.forEach(role => {
+                        const requiredHours = role.hours;
+                        let totalAssignedHours = 0;
+                        const relevantClasses = classes.filter(c => c.grade === role.grade);
+                        relevantClasses.forEach(c => {
+                             const ttValue = `tt_${c.id}_${role.name}`;
+                             const assignedInClass = Object.entries(timetable).filter(([key, value]) => {
+                                const [entryTeacherId] = key.split('_');
+                                return parseInt(entryTeacherId) === teacher.id && value === ttValue;
+                            }).length;
+                            totalAssignedHours += assignedInClass;
+                        });
+                        if (totalAssignedHours !== requiredHours) {
+                            isTeacherValid = false;
+                        }
+                    });
+
                     const th = document.getElementById(`teacher-th-${teacher.id}`);
                     if (th) { th.classList.toggle('teacher-hours-invalid', !isTeacherValid); }
                 });
@@ -674,20 +1045,57 @@
                         this.state.data.teachers.forEach(teacher => {
                             const key = `${teacher.id}_${dayIndex}_${periodIndex}`;
                             if (this.state.data.timetable[key]) {
-                                const assignment = this.state.data.assignments[this.state.data.timetable[key]];
-                                if (assignment) {
-                                    if(!placedAssignmentsInSlot.has(assignment.classId)) { placedAssignmentsInSlot.set(assignment.classId, []); }
-                                    const cell = document.querySelector(`#teacher-timetable-container th#teacher-th-${teacher.id}`)?.parentElement.querySelector(`td[data-day-index="${dayIndex}"][data-period-index="${periodIndex}"]`);
-                                    if (cell) { placedAssignmentsInSlot.get(assignment.classId).push(cell); }
+                                const [type, ...rest] = this.state.data.timetable[key].split('_');
+                                if (type === 'main') {
+                                    const assignment = this.state.data.assignments[rest[0]];
+                                    if (assignment) {
+                                        if(!placedAssignmentsInSlot.has(assignment.classId)) { placedAssignmentsInSlot.set(assignment.classId, []); }
+                                        const cell = document.querySelector(`#teacher-timetable-container th#teacher-th-${teacher.id}`)?.parentElement.querySelector(`td[data-day-index="${dayIndex}"][data-period-index="${periodIndex}"]`);
+                                        if (cell) { placedAssignmentsInSlot.get(assignment.classId).push(cell); }
+                                    }
                                 }
                             }
                         });
-                         placedAssignmentsInSlot.forEach((cells, classId) => {
-                             const assignment = this.state.data.assignments.find(a => a.classId === classId && cells.length > 0);
-                             const subjectInfo = this.state.data.config.subjects.find(s=>s.grade === this.state.data.classes.find(c=>c.id === classId)?.grade && s.name === assignment?.subject);
-                             const teacherCount = subjectInfo ? subjectInfo.teacherCount : 1;
-                             if(cells.length > teacherCount){ cells.forEach(c => c.classList.add('table-cell-conflict')); }
-                         });
+                            placedAssignmentsInSlot.forEach((cells, classId) => {
+                                const assignment = this.state.data.assignments.find(a => a.classId === classId && cells.length > 0);
+                                const subjectInfo = this.state.data.config.subjects.find(s=>s.grade === this.state.data.classes.find(c=>c.id === classId)?.grade && s.name === assignment?.subject);
+                                const teacherCount = subjectInfo ? subjectInfo.teacherCount : 1;
+                                if(cells.length > teacherCount){ cells.forEach(c => c.classList.add('table-cell-conflict')); }
+                            });
+                    }
+                });
+            },
+            validateSameClassConflicts() {
+                const { days } = this.state.data.config;
+                if (!document.querySelectorAll('#teacher-timetable-container td[data-day-index]').length) return;
+                days.forEach((day, dayIndex) => {
+                    for (let periodIndex = 0; periodIndex < day.periods; periodIndex++) {
+                        const slotClassMap = new Map();
+                        this.state.data.teachers.forEach(teacher => {
+                            const key = `${teacher.id}_${dayIndex}_${periodIndex}`;
+                            const value = this.state.data.timetable[key];
+                            if (value) {
+                                const [type, ...rest] = value.split('_');
+                                let classId;
+                                if (type === 'main') {
+                                    const assignment = this.state.data.assignments[rest[0]];
+                                    if (assignment) classId = assignment.classId;
+                                } else if (type === 'tt') {
+                                    classId = parseInt(rest[0]);
+                                }
+
+                                if(classId) {
+                                    if (!slotClassMap.has(classId)) slotClassMap.set(classId, []);
+                                    const cell = document.querySelector(`#teacher-timetable-container th#teacher-th-${teacher.id}`)?.parentElement.querySelector(`td[data-day-index="${dayIndex}"][data-period-index="${periodIndex}"]`);
+                                    if (cell) slotClassMap.get(classId).push(cell);
+                                }
+                            }
+                        });
+                        slotClassMap.forEach((cells, classId) => {
+                            if (cells.length > 1) {
+                                cells.forEach(c => c.classList.add('table-cell-conflict'));
+                            }
+                        });
                     }
                 });
             }
@@ -697,4 +1105,3 @@
     </script>
 </body>
 </html>
-
